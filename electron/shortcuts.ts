@@ -53,30 +53,67 @@ export class ShortcutsHelper {
     })
 
     globalShortcut.register("CommandOrControl+Enter", async () => {
-      await this.deps.processingHelper?.processScreenshots()
+      console.log("CommandOrControl+Enter pressed - triggering unified chat processing")
+      const mainWindow = this.deps.getMainWindow()
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        // Send event to renderer to trigger the unified IPC flow
+        mainWindow.webContents.send("ctrl-enter-pressed")
+      }
     })
 
     globalShortcut.register("CommandOrControl+R", () => {
-      console.log(
-        "Command + R pressed. Canceling requests and resetting queues..."
-      )
+      console.log("=== CTRL+R PRESSED - Starting comprehensive reset ===")
 
-      // Cancel ongoing API requests
-      this.deps.processingHelper?.cancelOngoingRequests()
+      try {
+        // Cancel ongoing API requests
+        console.log("1. Canceling ongoing requests...")
+        this.deps.processingHelper?.cancelOngoingRequests()
 
-      // Clear both screenshot queues
-      this.deps.clearQueues()
+        // Clear both screenshot queues
+        console.log("2. Clearing screenshot queues...")
+        this.deps.clearQueues()
 
-      console.log("Cleared queues.")
+        // Clear chat history directly
+        console.log("3. Clearing chat history...")
+        const config = configHelper.loadConfig();
+        config.chatHistory = [];
+        configHelper.saveConfig(config);
+        console.log("   Chat history cleared from config")
 
-      // Update the view state to 'queue'
-      this.deps.setView("queue")
+        // Update the view state to 'queue'
+        console.log("4. Setting view to queue...")
+        this.deps.setView("queue")
 
-      // Notify renderer process to switch view to 'queue'
-      const mainWindow = this.deps.getMainWindow()
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("reset-view")
-        mainWindow.webContents.send("reset")
+        // Notify renderer process to switch view to 'queue' and clear chat
+        console.log("5. Sending UI reset events...")
+        const mainWindow = this.deps.getMainWindow()
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("reset-view")
+          console.log("   Sent reset-view event")
+          mainWindow.webContents.send("reset")
+          console.log("   Sent reset event")
+          mainWindow.webContents.send("chat-history-cleared")
+          console.log("   Sent chat-history-cleared event")
+        }
+
+        console.log("=== CTRL+R RESET COMPLETED SUCCESSFULLY ===")
+      } catch (error) {
+        console.error("=== ERROR IN CTRL+R RESET ===", error)
+      }
+    })
+
+    // Stop processing shortcut - Ctrl+Shift+S
+    globalShortcut.register("CommandOrControl+Shift+S", async () => {
+      console.log("=== CTRL+SHIFT+S PRESSED - Stopping processing ===")
+      try {
+        const mainWindow = this.deps.getMainWindow()
+        if (mainWindow) {
+          // Send event to trigger the stop processing via IPC
+          mainWindow.webContents.send("stop-processing-requested");
+          console.log("Stop processing event sent to renderer");
+        }
+      } catch (error) {
+        console.error("=== ERROR IN CTRL+SHIFT+S STOP ===", error)
       }
     })
 
