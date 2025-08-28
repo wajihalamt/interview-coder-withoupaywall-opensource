@@ -24,6 +24,15 @@ export interface ElectronAPI {
   removeScreenshotDeletedListener: (callback: (data: { path: string }) => void) => void
   onResetView: (callback: () => void) => () => void
   onSolutionStart: (callback: () => void) => () => void
+  onScreenshotsProcessedForChat: (callback: (data: {
+    success: boolean;
+    problemStatement?: string | null;
+    solution?: string | null;
+    thoughts?: string[] | null;
+    timeComplexity?: string | null;
+    spaceComplexity?: string | null;
+    language?: string;
+  }) => void) => () => void
   onDebugStart: (callback: () => void) => () => void
   onDebugSuccess: (callback: (data: any) => void) => () => void
   onSolutionError: (callback: (error: string) => void) => () => void
@@ -57,6 +66,7 @@ export interface ElectronAPI {
     spaceComplexity?: string | null;
     language?: string;
   }>
+  stopProcessing: () => Promise<{ success: boolean; message?: string; error?: string }>
   onChatHistoryCleared: (callback: () => void) => () => void
   onSubscriptionUpdated: (callback: () => void) => () => void
   onSubscriptionPortalClosed: (callback: () => void) => () => void
