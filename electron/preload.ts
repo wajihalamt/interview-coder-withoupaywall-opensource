@@ -69,6 +69,13 @@ const electronAPI = {
   removeScreenshotDeletedListener: (callback: (data: { path: string }) => void) => {
     ipcRenderer.removeListener("screenshot-deleted", callback)
   },
+  onChatHistoryCleared: (callback: () => void) => {
+    const subscription = () => callback()
+    ipcRenderer.on("chat-history-cleared", subscription)
+    return () => {
+      ipcRenderer.removeListener("chat-history-cleared", subscription)
+    }
+  },
   onResetView: (callback: () => void) => {
     const subscription = () => callback()
     ipcRenderer.on("reset-view", subscription)
@@ -250,6 +257,10 @@ const electronAPI = {
   
   // Chat functionality
   sendChatMessage: (message: string) => ipcRenderer.invoke("send-chat-message", message),
+  getChatHistory: () => ipcRenderer.invoke("get-chat-history"),
+  saveChatMessage: (message: any) => ipcRenderer.invoke("save-chat-message", message),
+  clearChatHistory: () => ipcRenderer.invoke("clear-chat-history"),
+  processScreenshotsForChat: () => ipcRenderer.invoke("process-screenshots-for-chat"),
   
   // Window management
   minimize: () => ipcRenderer.invoke("minimize-window"),

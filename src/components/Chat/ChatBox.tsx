@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2 } from 'lucide-react';
+import { Send, Bot, User, Loader2, Camera } from 'lucide-react';
 import { useToast } from '../../contexts/toast';
 
 interface Message {
@@ -21,6 +21,155 @@ const ChatBox: React.FC<ChatBoxProps> = ({ className = '' }) => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { showToast } = useToast();
 
+  // Load chat history on component mount
+  useEffect(() => {
+    const loadChatHistory = async () => {
+      try {
+        const response = await window.electronAPI.getChatHistory?.();
+        if (response?.success && response.messages) {
+          const loadedMessages: Message[] = response.messages.map((msg: any) => ({
+            ...msg,
+            timestamp: new Date(msg.timestamp)
+          }));
+          setMessages(loadedMessages);
+        }
+      } catch (error) {
+        console.error('Error loading chat history:', error);
+      }
+    };
+
+    loadChatHistory();
+
+    // Listen for chat history cleared events
+    const cleanupChatCleared = window.electronAPI.onChatHistoryCleared?.(() => {
+      console.log('Chat history cleared event received');
+      setMessages([]);
+    });
+
+    return () => {
+      cleanupChatCleared?.();
+    };
+  }, []);
+
+  // Save message to persistent storage
+  const saveMessageToPersistentStorage = async (message: Message) => {
+    try {
+      await window.electronAPI.saveChatMessage?.({
+        id: message.id,
+        type: message.type,
+        content: message.content
+      });
+    } catch (error) {
+      console.error('Error saving message to persistent storage:', error);
+    }
+  };
+
+  // Process screenshots and add results to chat
+  const handleProcessScreenshots = async () => {
+    if (isLoading) return;
+
+    setIsLoading(true);
+
+    // Add processing message to chat
+    const processingMessage: Message = {
+      id: Date.now().toString(),
+      type: 'ai',
+      content: '🔄 Processing screenshots... This may take a moment.',
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, processingMessage]);
+    await saveMessageToPersistentStorage(processingMessage);
+
+    try {
+      // Call the screenshot processing through Electron API
+      const response = await window.electronAPI.processScreenshotsForChat?.();
+      
+      if (response?.success) {
+        // Remove the processing message
+        setMessages(prev => prev.filter(msg => msg.id !== processingMessage.id));
+
+        // Add problem statement if available
+        if (response.problemStatement) {
+          const problemMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            type: 'ai',
+            content: `📋 **Problem Statement:**\n\n${response.problemStatement}`,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, problemMessage]);
+          await saveMessageToPersistentStorage(problemMessage);
+        }
+
+        // Add solution if available
+        if (response.solution) {
+          const solutionMessage: Message = {
+            id: (Date.now() + 2).toString(),
+            type: 'ai',
+            content: `💡 **Solution:**\n\n\`\`\`${response.language || 'javascript'}\n${response.solution}\n\`\`\``,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, solutionMessage]);
+          await saveMessageToPersistentStorage(solutionMessage);
+        }
+
+        // Add thoughts if available
+        if (response.thoughts && response.thoughts.length > 0) {
+          const thoughtsContent = response.thoughts.map((thought: string, index: number) => 
+            `${index + 1}. ${thought}`
+          ).join('\n');
+          
+          const thoughtsMessage: Message = {
+            id: (Date.now() + 3).toString(),
+            type: 'ai',
+            content: `🤔 **My Thoughts:**\n\n${thoughtsContent}`,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, thoughtsMessage]);
+          await saveMessageToPersistentStorage(thoughtsMessage);
+        }
+
+        // Add complexity analysis if available
+        if (response.timeComplexity || response.spaceComplexity) {
+          const complexityContent = [
+            response.timeComplexity ? `**Time Complexity:** ${response.timeComplexity}` : '',
+            response.spaceComplexity ? `**Space Complexity:** ${response.spaceComplexity}` : ''
+          ].filter(Boolean).join('\n');
+
+          const complexityMessage: Message = {
+            id: (Date.now() + 4).toString(),
+            type: 'ai',
+            content: `📊 **Complexity Analysis:**\n\n${complexityContent}`,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, complexityMessage]);
+          await saveMessageToPersistentStorage(complexityMessage);
+        }
+
+        showToast('Success', 'Screenshots processed successfully!', 'success');
+      } else {
+        throw new Error(response?.error || 'Failed to process screenshots');
+      }
+    } catch (error) {
+      console.error('Error processing screenshots:', error);
+      
+      // Remove the processing message and add error message
+      setMessages(prev => prev.filter(msg => msg.id !== processingMessage.id));
+      
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'ai',
+        content: '❌ Sorry, I encountered an error while processing the screenshots. Please make sure you have taken some screenshots first and try again.',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorMessage]);
+      await saveMessageToPersistentStorage(errorMessage);
+      
+      showToast('Error', 'Failed to process screenshots', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -40,6 +189,9 @@ const ChatBox: React.FC<ChatBoxProps> = ({ className = '' }) => {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    // Save user message to persistent storage
+    await saveMessageToPersistentStorage(userMessage);
+    
     const currentInput = inputValue;
     setInputValue('');
     setIsLoading(true);
@@ -56,6 +208,8 @@ const ChatBox: React.FC<ChatBoxProps> = ({ className = '' }) => {
           timestamp: new Date(),
         };
         setMessages(prev => [...prev, aiMessage]);
+        // Save AI message to persistent storage
+        await saveMessageToPersistentStorage(aiMessage);
       } else {
         throw new Error(response?.error || 'Failed to get AI response');
       }
@@ -71,6 +225,8 @@ const ChatBox: React.FC<ChatBoxProps> = ({ className = '' }) => {
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, errorMessage]);
+      // Save error message to persistent storage
+      await saveMessageToPersistentStorage(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -191,6 +347,18 @@ const ChatBox: React.FC<ChatBoxProps> = ({ className = '' }) => {
             disabled={isLoading}
           />
           <button
+            onClick={handleProcessScreenshots}
+            disabled={isLoading}
+            className="px-4 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center justify-center"
+            title="Process Screenshots"
+          >
+            {isLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Camera className="w-4 h-4" />
+            )}
+          </button>
+          <button
             onClick={handleSendMessage}
             disabled={!inputValue.trim() || isLoading}
             className="px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center justify-center"
@@ -203,7 +371,7 @@ const ChatBox: React.FC<ChatBoxProps> = ({ className = '' }) => {
           </button>
         </div>
         <p className="text-xs text-slate-500 mt-2">
-          Press Enter to send, Shift+Enter for new line
+          Press Enter to send, Shift+Enter for new line • Click 📷 to process screenshots
         </p>
       </div>
     </div>

@@ -1,6 +1,7 @@
 // ipcHandlers.ts
 
-import { ipcMain, shell, dialog } from "electron"
+import { ipcMain, shell, dialog, app } from "electron"
+import * as fs from 'fs'
 import { randomBytes } from "crypto"
 import { IIpcHandlerDeps } from "./main"
 import { configHelper } from "./ConfigHelper"
@@ -260,6 +261,12 @@ export function initializeIpcHandlers(deps: IIpcHandlerDeps): void {
       // Clear all queues immediately
       deps.clearQueues()
 
+      // Clear chat history
+      const config = configHelper.loadConfig();
+      config.chatHistory = [];
+      configHelper.saveConfig(config);
+      console.log("Chat history cleared during reset");
+
       // Reset view to queue
       deps.setView("queue")
 
@@ -269,6 +276,7 @@ export function initializeIpcHandlers(deps: IIpcHandlerDeps): void {
         // Send reset events in sequence
         mainWindow.webContents.send("reset-view")
         mainWindow.webContents.send("reset")
+        mainWindow.webContents.send("chat-history-cleared") // Notify frontend to clear chat
       }
 
       return { success: true }
@@ -394,6 +402,70 @@ export function initializeIpcHandlers(deps: IIpcHandlerDeps): void {
     }
   })
 
+  // Chat history handlers
+  ipcMain.handle("get-chat-history", () => {
+    try {
+      const config = configHelper.loadConfig();
+      return {
+        success: true,
+        messages: config.chatHistory || []
+      };
+    } catch (error) {
+      console.error("Error getting chat history:", error);
+      return {
+        success: false,
+        messages: [],
+        error: "Failed to load chat history"
+      };
+    }
+  })
+
+  ipcMain.handle("save-chat-message", (_event, message: any) => {
+    try {
+      const config = configHelper.loadConfig();
+      if (!config.chatHistory) {
+        config.chatHistory = [];
+      }
+      
+      config.chatHistory.push({
+        ...message,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Keep only last 100 messages to prevent config file from getting too large
+      if (config.chatHistory.length > 100) {
+        config.chatHistory = config.chatHistory.slice(-100);
+      }
+      
+      configHelper.saveConfig(config);
+      
+      return { success: true };
+    } catch (error) {
+      console.error("Error saving chat message:", error);
+      return { 
+        success: false, 
+        error: "Failed to save chat message" 
+      };
+    }
+  })
+
+  ipcMain.handle("clear-chat-history", () => {
+    try {
+      const config = configHelper.loadConfig();
+      config.chatHistory = [];
+      configHelper.saveConfig(config);
+      
+      console.log("Chat history cleared");
+      return { success: true };
+    } catch (error) {
+      console.error("Error clearing chat history:", error);
+      return { 
+        success: false, 
+        error: "Failed to clear chat history" 
+      };
+    }
+  })
+
   // Chat message handler
   ipcMain.handle("send-chat-message", async (_event, message: string) => {
     try {
@@ -472,10 +544,123 @@ export function initializeIpcHandlers(deps: IIpcHandlerDeps): void {
     }
   })
 
+  // Process screenshots for chat
+  ipcMain.handle("process-screenshots-for-chat", async () => {
+    try {
+      console.log("Processing screenshots for chat...");
+
+      // Check for API key
+      if (!configHelper.hasApiKey()) {
+        return { 
+          success: false, 
+          error: "OpenAI API key not configured. Please set up your API key in settings." 
+        };
+      }
+
+      // Get screenshot queue from deps
+      const screenshotQueue = deps.getScreenshotQueue() || [];
+      
+      if (screenshotQueue.length === 0) {
+        return {
+          success: false,
+          error: "No screenshots found. Please take some screenshots first using Ctrl+H."
+        };
+      }
+
+      console.log(`Processing ${screenshotQueue.length} screenshots for chat`);
+
+      // Use the existing processing helper
+      const processingHelper = deps.processingHelper;
+      if (!processingHelper) {
+        return {
+          success: false,
+          error: "Processing helper not initialized"
+        };
+      }
+
+      // Process screenshots using the same logic as the original processScreenshots
+      const screenshots = await Promise.all(
+        screenshotQueue.map(async (path: string) => {
+          try {
+            if (!fs.existsSync(path)) {
+              console.warn(`Screenshot file does not exist: ${path}`);
+              return null;
+            }
+            
+            return {
+              path,
+              preview: await deps.getImagePreview(path) || '',
+              data: fs.readFileSync(path).toString('base64')
+            };
+          } catch (err) {
+            console.error(`Error reading screenshot ${path}:`, err);
+            return null;
+          }
+        })
+      );
+
+      const validScreenshots = screenshots.filter(Boolean) as Array<{ path: string; preview: string; data: string }>;
+      
+      if (validScreenshots.length === 0) {
+        return {
+          success: false,
+          error: "Failed to load screenshot data"
+        };
+      }
+
+      // Call the processing helper's internal method to process screenshots
+      // We need to access the private method, so we'll use type assertion
+      const internalProcessingHelper = processingHelper as unknown as {
+        processScreenshotsHelper: (screenshots: Array<{ path: string; data: string }>, signal: AbortSignal) => Promise<{ success: boolean; data?: Record<string, unknown>; error?: string }>
+      };
+      
+      const result = await internalProcessingHelper.processScreenshotsHelper(validScreenshots, new AbortController().signal);
+      
+      if (!result.success) {
+        return {
+          success: false,
+          error: result.error || "Failed to process screenshots"
+        };
+      }
+
+      // Extract the relevant data for chat
+      const data = result.data;
+      const config = configHelper.loadConfig();
+      
+      return {
+        success: true,
+        problemStatement: data?.problem_statement || null,
+        solution: data?.code || null,
+        thoughts: data?.thoughts || null,
+        timeComplexity: data?.time_complexity || null,
+        spaceComplexity: data?.space_complexity || null,
+        language: config.language || 'javascript'
+      };
+
+    } catch (error: unknown) {
+      console.error("Error processing screenshots for chat:", error);
+      
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      // Handle specific errors
+      if (errorMessage.includes('API Key') || errorMessage.includes('OpenAI')) {
+        return {
+          success: false,
+          error: "OpenAI API error. Please check your API key and quota."
+        };
+      }
+      
+      return {
+        success: false,
+        error: errorMessage || "Failed to process screenshots"
+      };
+    }
+  })
+
   ipcMain.handle("quit-app", () => {
     try {
       // This will quit the entire application
-      require("electron").app.quit()
+      app.quit()
       return { success: true }
     } catch (error) {
       console.error("Error quitting app:", error)
