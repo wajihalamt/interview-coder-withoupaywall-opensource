@@ -348,4 +348,30 @@ export function initializeIpcHandlers(deps: IIpcHandlerDeps): void {
       return { success: false, error: "Failed to delete last screenshot" }
     }
   })
+
+  // Window management handlers
+  ipcMain.handle("minimize-window", () => {
+    try {
+      const mainWindow = deps.getMainWindow()
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.minimize()
+        return { success: true }
+      }
+      return { success: false, error: "No main window available" }
+    } catch (error) {
+      console.error("Error minimizing window:", error)
+      return { success: false, error: "Failed to minimize window" }
+    }
+  })
+
+  ipcMain.handle("quit-app", () => {
+    try {
+      // This will quit the entire application
+      require("electron").app.quit()
+      return { success: true }
+    } catch (error) {
+      console.error("Error quitting app:", error)
+      return { success: false, error: "Failed to quit application" }
+    }
+  })
 }

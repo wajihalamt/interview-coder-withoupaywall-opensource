@@ -61,6 +61,10 @@ export interface ElectronAPI {
   openLink: (url: string) => void
   onApiKeyInvalid: (callback: () => void) => () => void
   removeListener: (eventName: string, callback: (...args: any[]) => void) => void
+  
+  // Window management
+  minimize: () => Promise<{ success: boolean; error?: string }>
+  quit: () => Promise<{ success: boolean; error?: string }>
 }
 
 declare global {
