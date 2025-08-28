@@ -328,6 +328,23 @@ export function SettingsDialog({ open: externalOpen, onOpenChange }: SettingsDia
     window.electronAPI.openLink(url);
   };
 
+  // Handle shortcut button clicks with feedback
+  const handleShortcutAction = async (action: string, apiCall: () => Promise<{ success: boolean; error?: string }>) => {
+    console.log(`${action} button clicked!`);
+    try {
+      const result = await apiCall();
+      console.log(`${action} result:`, result);
+      if (result.success) {
+        showToast("Success", `${action} executed successfully`, "success");
+      } else {
+        showToast("Error", result.error || `Failed to ${action.toLowerCase()}`, "error");
+      }
+    } catch (error: unknown) {
+      console.error(`Error executing ${action}:`, error);
+      showToast("Error", `Failed to ${action.toLowerCase()}`, "error");
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent 
@@ -531,43 +548,169 @@ export function SettingsDialog({ open: externalOpen, onOpenChange }: SettingsDia
           
           <div className="space-y-2 mt-4">
             <label className="text-sm font-medium text-white mb-2 block">Keyboard Shortcuts</label>
+            <p className="text-xs text-white/60 -mt-1 mb-2">
+              Click the buttons below or use keyboard shortcuts
+            </p>
             <div className="bg-black/30 border border-white/10 rounded-lg p-3">
-              <div className="grid grid-cols-2 gap-y-2 text-xs">
-                <div className="text-white/70">Toggle Visibility</div>
-                <div className="text-white/90 font-mono">Ctrl+B / Cmd+B</div>
+              <div className="grid grid-cols-1 gap-y-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-white/70">Toggle Visibility</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-white/50 font-mono text-xs">Ctrl+B</span>
+                    <button
+                      className="h-6 px-2 text-xs bg-cyan-600/20 border border-cyan-500/30 rounded hover:bg-cyan-500/30 text-white cursor-pointer transition-colors"
+                      onClick={() => {
+                        console.log("Toggle window button clicked!");
+                        handleShortcutAction("Toggle window", window.electronAPI.toggleMainWindow);
+                      }}
+                    >
+                      Toggle
+                    </button>
+                  </div>
+                </div>
                 
-                <div className="text-white/70">Take Screenshot</div>
-                <div className="text-white/90 font-mono">Ctrl+H / Cmd+H</div>
+                <div className="flex items-center justify-between">
+                  <span className="text-white/70">Take Screenshot</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-white/50 font-mono text-xs">Ctrl+H</span>
+                    <button
+                      className="h-6 px-2 text-xs bg-blue-600/20 border border-blue-500/30 rounded hover:bg-blue-500/30 text-white cursor-pointer transition-colors"
+                      onClick={() => {
+                        console.log("Take screenshot button clicked!");
+                        handleShortcutAction("Take screenshot", window.electronAPI.triggerScreenshot);
+                      }}
+                    >
+                      Screenshot
+                    </button>
+                  </div>
+                </div>
                 
-                <div className="text-white/70">Process Screenshots</div>
-                <div className="text-white/90 font-mono">Ctrl+Enter / Cmd+Enter</div>
+                <div className="flex items-center justify-between">
+                  <span className="text-white/70">Process Screenshots</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-white/50 font-mono text-xs">Ctrl+Enter</span>
+                    <button
+                      className="h-6 px-2 text-xs bg-green-600/20 border border-green-500/30 rounded hover:bg-green-500/30 text-white cursor-pointer transition-colors"
+                      onClick={() => {
+                        console.log("Process screenshots button clicked!");
+                        handleShortcutAction("Process screenshots", window.electronAPI.triggerProcessScreenshots);
+                      }}
+                    >
+                      Process
+                    </button>
+                  </div>
+                </div>
                 
-                <div className="text-white/70">Delete Last Screenshot</div>
-                <div className="text-white/90 font-mono">Ctrl+L / Cmd+L</div>
+                <div className="flex items-center justify-between">
+                  <span className="text-white/70">Delete Last Screenshot</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-white/50 font-mono text-xs">Ctrl+L</span>
+                    <button
+                      className="h-6 px-2 text-xs bg-yellow-600/20 border border-yellow-500/30 rounded hover:bg-yellow-500/30 text-white cursor-pointer transition-colors"
+                      onClick={() => {
+                        console.log("Delete last screenshot button clicked!");
+                        handleShortcutAction("Delete last screenshot", window.electronAPI.deleteLastScreenshot);
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
                 
-                <div className="text-white/70">Reset View</div>
-                <div className="text-white/90 font-mono">Ctrl+R / Cmd+R</div>
+                <div className="flex items-center justify-between">
+                  <span className="text-white/70">Reset View</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-white/50 font-mono text-xs">Ctrl+R</span>
+                    <button
+                      className="h-6 px-2 text-xs bg-orange-600/20 border border-orange-500/30 rounded hover:bg-orange-500/30 text-white cursor-pointer transition-colors"
+                      onClick={() => {
+                        console.log("Reset view button clicked!");
+                        handleShortcutAction("Reset view", window.electronAPI.triggerReset);
+                      }}
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
                 
-                <div className="text-white/70">Quit Application</div>
-                <div className="text-white/90 font-mono">Ctrl+Q / Cmd+Q</div>
+                <div className="flex items-center justify-between">
+                  <span className="text-white/70">Quit Application</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-white/50 font-mono text-xs">Ctrl+Q</span>
+                    <button
+                      className="h-6 px-2 text-xs bg-red-400/10 border border-red-400/30 rounded hover:bg-red-400/15 text-red-400 cursor-pointer transition-colors"
+                      onClick={() => {
+                        console.log("Quit application button clicked!");
+                        handleShortcutAction("Quit application", window.electronAPI.quit);
+                      }}
+                    >
+                      Quit
+                    </button>
+                  </div>
+                </div>
                 
-                <div className="text-white/70">Move Window</div>
-                <div className="text-white/90 font-mono">Ctrl+Arrow Keys</div>
+                <div className="border-t border-white/10 pt-3">
+                  <div className="text-white/60 text-xs mb-2 font-medium">Window Movement</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      className="h-6 text-xs px-2 py-1 rounded border border-white/20 bg-white/10 hover:bg-white/20 text-white transition-colors"
+                      onClick={() => {
+                        console.log("Move Left button clicked");
+                        handleShortcutAction("Move window left", window.electronAPI.triggerMoveLeft);
+                      }}
+                    >
+                      ← Move Left
+                    </button>
+                    <button
+                      className="h-6 text-xs px-2 py-1 rounded border border-white/20 bg-white/10 hover:bg-white/20 text-white transition-colors"
+                      onClick={() => {
+                        console.log("Move Right button clicked");
+                        handleShortcutAction("Move window right", window.electronAPI.triggerMoveRight);
+                      }}
+                    >
+                      → Move Right
+                    </button>
+                    <button
+                      className="h-6 text-xs px-2 py-1 rounded border border-white/20 bg-white/10 hover:bg-white/20 text-white transition-colors"
+                      onClick={() => {
+                        console.log("Move Up button clicked");
+                        handleShortcutAction("Move window up", window.electronAPI.triggerMoveUp);
+                      }}
+                    >
+                      ↑ Move Up
+                    </button>
+                    <button
+                      className="h-6 text-xs px-2 py-1 rounded border border-white/20 bg-white/10 hover:bg-white/20 text-white transition-colors"
+                      onClick={() => {
+                        console.log("Move Down button clicked");
+                        handleShortcutAction("Move window down", window.electronAPI.triggerMoveDown);
+                      }}
+                    >
+                      ↓ Move Down
+                    </button>
+                  </div>
+                  <div className="text-xs text-white/40 mt-1 text-center">
+                    Ctrl+Arrow Keys
+                  </div>
+                </div>
                 
-                <div className="text-white/70">Decrease Opacity</div>
-                <div className="text-white/90 font-mono">Ctrl+[ / Cmd+[</div>
-                
-                <div className="text-white/70">Increase Opacity</div>
-                <div className="text-white/90 font-mono">Ctrl+] / Cmd+]</div>
-                
-                <div className="text-white/70">Zoom Out</div>
-                <div className="text-white/90 font-mono">Ctrl+- / Cmd+-</div>
-                
-                <div className="text-white/70">Reset Zoom</div>
-                <div className="text-white/90 font-mono">Ctrl+0 / Cmd+0</div>
-                
-                <div className="text-white/70">Zoom In</div>
-                <div className="text-white/90 font-mono">Ctrl+= / Cmd+=</div>
+                <div className="border-t border-white/10 pt-3">
+                  <div className="text-white/60 text-xs mb-2 font-medium">Window Controls</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      className="h-6 text-xs px-2 py-1 rounded border border-white/20 bg-white/10 hover:bg-white/20 text-white transition-colors"
+                      onClick={() => {
+                        console.log("Minimize button clicked");
+                        handleShortcutAction("Minimize window", window.electronAPI.minimize);
+                      }}
+                    >
+                      Minimize
+                    </button>
+                    <div className="text-xs text-white/50 flex items-center">
+                      Various zoom/opacity controls work via keyboard only
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
