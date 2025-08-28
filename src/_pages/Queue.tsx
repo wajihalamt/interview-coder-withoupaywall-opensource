@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import ScreenshotQueue from '../components/Queue/ScreenshotQueue';
-import { QueueCommandsSimple } from '../components/Queue/QueueCommandsSimple';
+import ChatBox from '../components/Chat/ChatBox';
 
 import { useToast } from '../contexts/toast';
 import { Screenshot } from '../types/screenshots';
@@ -25,9 +25,9 @@ interface QueueProps {
 
 const Queue: React.FC<QueueProps> = ({
   setView,
-  credits,
-  currentLanguage,
-  setLanguage,
+  credits, // Available but not used in simplified layout - Actions tab handles this
+  currentLanguage, // Available but not used in simplified layout - Actions tab handles this  
+  setLanguage, // Available but not used in simplified layout - Actions tab handles this
 }) => {
   const { showToast } = useToast();
   const queryClient = useQueryClient();
@@ -168,21 +168,14 @@ const Queue: React.FC<QueueProps> = ({
             </div>
           </div>
 
-          {/* Actions Section */}
+          {/* Chat Section */}
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-              <span>⚡</span>
-              Actions & Settings
+              <span>💬</span>
+              AI Assistant
             </h2>
-
-            <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-600/30 rounded-xl p-6">
-              <QueueCommandsSimple
-                screenshotCount={screenshots.length}
-                credits={credits}
-                currentLanguage={currentLanguage}
-                setLanguage={setLanguage}
-              />
-            </div>
+            
+            <ChatBox className="h-[600px]" />
           </div>
         </div>
       </div>

@@ -129,6 +129,13 @@ export class ProcessingHelper {
     }
   }
 
+  /**
+   * Get the current OpenAI client instance
+   */
+  public getOpenAIClient(): OpenAI | null {
+    return this.openaiClient;
+  }
+
   private async waitForInitialization(
     mainWindow: BrowserWindow
   ): Promise<void> {

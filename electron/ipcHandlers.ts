@@ -394,6 +394,84 @@ export function initializeIpcHandlers(deps: IIpcHandlerDeps): void {
     }
   })
 
+  // Chat message handler
+  ipcMain.handle("send-chat-message", async (_event, message: string) => {
+    try {
+      // Check for API key before sending chat message
+      if (!configHelper.hasApiKey()) {
+        return { 
+          success: false, 
+          error: "OpenAI API key not configured. Please set up your API key in settings." 
+        };
+      }
+
+      console.log("Sending chat message to AI:", message.substring(0, 100) + "...");
+
+      // Get the OpenAI client
+      const openai = deps.getOpenAIClient?.();
+      if (!openai) {
+        return { 
+          success: false, 
+          error: "OpenAI client not initialized" 
+        };
+      }
+
+      // Send the message to OpenAI
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "You are a helpful AI assistant specialized in helping with coding problems, debugging, and programming questions. Provide clear, concise, and helpful responses."
+          },
+          {
+            role: "user",
+            content: message
+          }
+        ],
+        max_tokens: 1000,
+        temperature: 0.7,
+      });
+
+      const aiResponse = completion.choices[0]?.message?.content;
+      
+      if (!aiResponse) {
+        return { 
+          success: false, 
+          error: "No response received from AI" 
+        };
+      }
+
+      console.log("AI response received:", aiResponse.substring(0, 100) + "...");
+
+      return {
+        success: true,
+        message: aiResponse
+      };
+
+    } catch (error: any) {
+      console.error("Error sending chat message:", error);
+      
+      // Handle specific OpenAI errors
+      if (error?.error?.type === 'insufficient_quota') {
+        return { 
+          success: false, 
+          error: "OpenAI API quota exceeded. Please check your OpenAI account." 
+        };
+      } else if (error?.error?.type === 'invalid_api_key') {
+        return { 
+          success: false, 
+          error: "Invalid OpenAI API key. Please check your API key in settings." 
+        };
+      } else {
+        return { 
+          success: false, 
+          error: error.message || "Failed to send message to AI" 
+        };
+      }
+    }
+  })
+
   ipcMain.handle("quit-app", () => {
     try {
       // This will quit the entire application
