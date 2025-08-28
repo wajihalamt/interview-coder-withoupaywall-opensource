@@ -129,8 +129,8 @@ const Queue: React.FC<QueueProps> = ({
           </p>
         </div>
 
-        {/* Main Content - Single Column Layout */}
-        <div className="space-y-8">
+        {/* Main Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Screenshots Section */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -175,7 +175,7 @@ const Queue: React.FC<QueueProps> = ({
               AI Assistant
             </h2>
             
-            <ChatBox className="h-[500px]" />
+            <ChatBox className="h-[600px]" />
           </div>
         </div>
       </div>

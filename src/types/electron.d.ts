@@ -44,20 +44,6 @@ export interface ElectronAPI {
   deleteLastScreenshot: () => Promise<{ success: boolean; error?: string }>
   onDeleteLastScreenshot: (callback: () => void) => () => void
   sendChatMessage: (message: string) => Promise<{ success: boolean; message?: string; error?: string }>
-  getChatHistory: () => Promise<{ success: boolean; messages: Array<{id: string; type: 'user' | 'ai'; content: string; timestamp: string}>; error?: string }>
-  saveChatMessage: (message: {id: string; type: 'user' | 'ai'; content: string}) => Promise<{ success: boolean; error?: string }>
-  clearChatHistory: () => Promise<{ success: boolean; error?: string }>
-  processScreenshotsForChat: () => Promise<{ 
-    success: boolean; 
-    error?: string;
-    problemStatement?: string | null;
-    solution?: string | null;
-    thoughts?: string[] | null;
-    timeComplexity?: string | null;
-    spaceComplexity?: string | null;
-    language?: string;
-  }>
-  onChatHistoryCleared: (callback: () => void) => () => void
   onSubscriptionUpdated: (callback: () => void) => () => void
   onSubscriptionPortalClosed: (callback: () => void) => () => void
   startUpdate: () => Promise<{ success: boolean; error?: string }>
