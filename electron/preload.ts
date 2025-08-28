@@ -59,6 +59,16 @@ const electronAPI = {
       ipcRenderer.removeListener("screenshot-taken", subscription)
     }
   },
+  onScreenshotDeleted: (callback: (data: { path: string }) => void) => {
+    const subscription = (_: any, data: { path: string }) => callback(data)
+    ipcRenderer.on("screenshot-deleted", subscription)
+    return () => {
+      ipcRenderer.removeListener("screenshot-deleted", subscription)
+    }
+  },
+  removeScreenshotDeletedListener: (callback: (data: { path: string }) => void) => {
+    ipcRenderer.removeListener("screenshot-deleted", callback)
+  },
   onResetView: (callback: () => void) => {
     const subscription = () => callback()
     ipcRenderer.on("reset-view", subscription)

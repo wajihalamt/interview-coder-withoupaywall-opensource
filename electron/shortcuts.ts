@@ -150,12 +150,20 @@ export class ShortcutsHelper {
     })
     
     // Delete last screenshot shortcut
-    globalShortcut.register("CommandOrControl+L", () => {
+    globalShortcut.register("CommandOrControl+L", async () => {
       console.log("Command/Ctrl + L pressed. Deleting last screenshot.")
-      const mainWindow = this.deps.getMainWindow()
-      if (mainWindow) {
-        // Send an event to the renderer to delete the last screenshot
-        mainWindow.webContents.send("delete-last-screenshot")
+      try {
+        // Use the same logic as the IPC handler
+        const mainWindow = this.deps.getMainWindow()
+        if (mainWindow) {
+          // Trigger the delete-last-screenshot IPC handler
+          const result = await mainWindow.webContents.executeJavaScript(`
+            window.electronAPI.deleteLastScreenshot()
+          `)
+          console.log("Delete last screenshot result:", result)
+        }
+      } catch (error) {
+        console.error("Error deleting last screenshot via Ctrl+L:", error)
       }
     })
     
