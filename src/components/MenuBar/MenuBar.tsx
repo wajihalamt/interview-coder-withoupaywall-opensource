@@ -26,7 +26,7 @@ export const MenuBar: React.FC = () => {
           <div className="flex items-center gap-2">
             <span className="text-lg">🚀</span>
             <h1 className="text-white font-semibold text-sm">
-              WajihCoder
+              Interview Coder
             </h1>
             <span className="text-xs text-slate-400 bg-slate-700/50 px-2 py-1 rounded">
               Unlocked Edition
