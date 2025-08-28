@@ -248,6 +248,9 @@ const electronAPI = {
   },
   deleteLastScreenshot: () => ipcRenderer.invoke("delete-last-screenshot"),
   
+  // Chat functionality
+  sendChatMessage: (message: string) => ipcRenderer.invoke("send-chat-message", message),
+  
   // Window management
   minimize: () => ipcRenderer.invoke("minimize-window"),
   quit: () => ipcRenderer.invoke("quit-app")

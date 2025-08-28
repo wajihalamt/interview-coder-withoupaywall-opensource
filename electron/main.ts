@@ -107,6 +107,7 @@ export interface IIpcHandlerDeps {
   moveWindowRight: () => void
   moveWindowUp: () => void
   moveWindowDown: () => void
+  getOpenAIClient: () => any
 }
 
 // Initialize helpers
@@ -557,7 +558,8 @@ async function initializeApp() {
           )
         ),
       moveWindowUp: () => moveWindowVertical((y) => y - state.step),
-      moveWindowDown: () => moveWindowVertical((y) => y + state.step)
+      moveWindowDown: () => moveWindowVertical((y) => y + state.step),
+      getOpenAIClient: () => state.processingHelper?.getOpenAIClient() || null
     })
     await createWindow()
     state.shortcutsHelper?.registerGlobalShortcuts()

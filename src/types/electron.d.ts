@@ -43,6 +43,7 @@ export interface ElectronAPI {
   triggerMoveDown: () => Promise<{ success: boolean; error?: string }>
   deleteLastScreenshot: () => Promise<{ success: boolean; error?: string }>
   onDeleteLastScreenshot: (callback: () => void) => () => void
+  sendChatMessage: (message: string) => Promise<{ success: boolean; message?: string; error?: string }>
   onSubscriptionUpdated: (callback: () => void) => () => void
   onSubscriptionPortalClosed: (callback: () => void) => () => void
   startUpdate: () => Promise<{ success: boolean; error?: string }>
