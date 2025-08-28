@@ -655,33 +655,68 @@ export function initializeIpcHandlers(deps: IIpcHandlerDeps): void {
 
       console.log("Sending chat message to AI:", message.substring(0, 100) + "...");
 
-      // Get the OpenAI client
-      const openai = deps.getOpenAIClient?.();
-      if (!openai) {
-        return { 
-          success: false, 
-          error: "OpenAI client not initialized" 
-        };
-      }
+      const config = configHelper.loadConfig();
+      console.log("Using provider:", config.apiProvider);
 
-      // Send the message to OpenAI
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: "You are a helpful AI assistant specialized in helping with coding problems, debugging, and programming questions. Provide clear, concise, and helpful responses."
-          },
-          {
-            role: "user",
-            content: message
+      let aiResponse: string | undefined;
+
+      if (config.apiProvider === "openai") {
+        // Get the OpenAI client
+        const openai = deps.getOpenAIClient?.();
+        if (!openai) {
+          return { 
+            success: false, 
+            error: "OpenAI client not initialized" 
+          };
+        }
+
+        // Send the message to OpenAI
+        const completion = await openai.chat.completions.create({
+          model: config.extractionModel || "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: "You are a helpful AI assistant specialized in helping with coding problems, debugging, and programming questions. Provide clear, concise, and helpful responses."
+            },
+            {
+              role: "user",
+              content: message
+            }
+          ],
+          max_tokens: 1000,
+          temperature: 0.7,
+        });
+
+        aiResponse = completion.choices[0]?.message?.content;
+
+      } else {
+        // For other providers (GitHub, Gemini, Anthropic), use ProcessingHelper
+        const processingHelper = deps.processingHelper;
+        if (!processingHelper) {
+          return { 
+            success: false, 
+            error: "Processing helper not initialized" 
+          };
+        }
+
+        // Use the ProcessingHelper's method to send chat message
+        try {
+          const result = await processingHelper.sendChatMessage(message, config);
+          if (result.success) {
+            aiResponse = result.message;
+          } else {
+            return { 
+              success: false, 
+              error: result.error || "Failed to get response from AI" 
+            };
           }
-        ],
-        max_tokens: 1000,
-        temperature: 0.7,
-      });
-
-      const aiResponse = completion.choices[0]?.message?.content;
+        } catch (error: unknown) {
+          return { 
+            success: false, 
+            error: (error as Error).message || "Failed to process chat message" 
+          };
+        }
+      }
       
       if (!aiResponse) {
         return { 
@@ -697,24 +732,26 @@ export function initializeIpcHandlers(deps: IIpcHandlerDeps): void {
         message: aiResponse
       };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error sending chat message:", error);
       
-      // Handle specific OpenAI errors
-      if (error?.error?.type === 'insufficient_quota') {
+      const errorMessage = (error as Error).message || "Failed to send message to AI";
+      
+      // Handle specific API errors
+      if (errorMessage.includes('insufficient_quota')) {
         return { 
           success: false, 
-          error: "OpenAI API quota exceeded. Please check your OpenAI account." 
+          error: "API quota exceeded. Please check your account." 
         };
-      } else if (error?.error?.type === 'invalid_api_key') {
+      } else if (errorMessage.includes('invalid_api_key')) {
         return { 
           success: false, 
-          error: "Invalid OpenAI API key. Please check your API key in settings." 
+          error: "Invalid API key. Please check your API key in settings." 
         };
       } else {
         return { 
           success: false, 
-          error: error.message || "Failed to send message to AI" 
+          error: errorMessage 
         };
       }
     }

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Settings, LogOut, ChevronDown, ChevronUp } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Settings, LogOut, ChevronDown, ChevronUp, Zap } from 'lucide-react';
 import { Button } from '../ui/button';
 import { useToast } from '../../contexts/toast';
 
@@ -21,9 +21,43 @@ const LANGUAGES = [
   { value: 'typescript', label: 'TypeScript' },
 ];
 
+// API Provider labels
+const PROVIDER_LABELS = {
+  openai: 'OpenAI',
+  gemini: 'Gemini',
+  anthropic: 'Claude',
+  github: 'GitHub Models'
+} as const;
+
 export function Header({ currentLanguage, setLanguage, onOpenSettings }: HeaderProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [apiProvider, setApiProvider] = useState<string>('openai');
   const { showToast } = useToast();
+
+  // Load the current API provider
+  useEffect(() => {
+    const loadProvider = async () => {
+      try {
+        const config = await window.electronAPI.getConfig();
+        setApiProvider(config.apiProvider || 'openai');
+      } catch (error: unknown) {
+        console.error('Error loading API provider:', error);
+      }
+    };
+    
+    loadProvider();
+
+    // Listen for config changes to update the provider display
+    const handleConfigUpdate = () => {
+      loadProvider();
+    };
+
+    window.addEventListener('config-updated', handleConfigUpdate);
+    
+    return () => {
+      window.removeEventListener('config-updated', handleConfigUpdate);
+    };
+  }, []);
 
   // Handle logout - clear API key and reload app
   const handleLogout = async () => {
@@ -39,7 +73,7 @@ export function Header({ currentLanguage, setLanguage, onOpenSettings }: HeaderP
       setTimeout(() => {
         window.location.reload();
       }, 1500);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error logging out:', error);
       showToast('Error', 'Failed to log out', 'error');
     }
@@ -67,40 +101,52 @@ export function Header({ currentLanguage, setLanguage, onOpenSettings }: HeaderP
 
   return (
     <div className="bg-black p-2 border-b border-white/10 flex items-center justify-between">
-      <div className="flex items-center space-x-1">
-        <span className="text-white text-sm mr-2">Language:</span>
-        <div className="relative">
-          <button
-            onClick={toggleDropdown}
-            className="flex items-center gap-1 rounded-md bg-white/5 px-3 py-1.5 text-sm text-white hover:bg-white/10 transition-colors"
-          >
-            {currentLangObj.label}
-            {dropdownOpen ? (
-              <ChevronUp className="h-4 w-4 text-white/70" />
-            ) : (
-              <ChevronDown className="h-4 w-4 text-white/70" />
-            )}
-          </button>
-          
-          {dropdownOpen && (
-            <div className="absolute z-10 mt-1 w-full rounded-md bg-black border border-white/10 shadow-lg">
-              <div className="py-1">
-                {LANGUAGES.map((lang) => (
-                  <button
-                    key={lang.value}
-                    onClick={() => handleLanguageSelect(lang.value)}
-                    className={`block w-full text-left px-4 py-2 text-sm ${
-                      currentLanguage === lang.value
-                        ? 'bg-white/10 text-white'
-                        : 'text-white/70 hover:bg-white/5'
-                    }`}
-                  >
-                    {lang.label}
-                  </button>
-                ))}
+      <div className="flex items-center space-x-4">
+        {/* API Provider Status */}
+        <div className="flex items-center space-x-2">
+          <Zap className="h-4 w-4 text-green-400" />
+          <span className="text-sm text-white/70">AI:</span>
+          <span className="text-sm text-green-400 font-medium">
+            {PROVIDER_LABELS[apiProvider as keyof typeof PROVIDER_LABELS] || 'Unknown'}
+          </span>
+        </div>
+
+        {/* Language Selector */}
+        <div className="flex items-center space-x-1">
+          <span className="text-white text-sm mr-2">Language:</span>
+          <div className="relative">
+            <button
+              onClick={toggleDropdown}
+              className="flex items-center gap-1 rounded-md bg-white/5 px-3 py-1.5 text-sm text-white hover:bg-white/10 transition-colors"
+            >
+              {currentLangObj.label}
+              {dropdownOpen ? (
+                <ChevronUp className="h-4 w-4 text-white/70" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-white/70" />
+              )}
+            </button>
+            
+            {dropdownOpen && (
+              <div className="absolute z-10 mt-1 w-full rounded-md bg-black border border-white/10 shadow-lg">
+                <div className="py-1">
+                  {LANGUAGES.map((lang) => (
+                    <button
+                      key={lang.value}
+                      onClick={() => handleLanguageSelect(lang.value)}
+                      className={`block w-full text-left px-4 py-2 text-sm ${
+                        currentLanguage === lang.value
+                          ? 'bg-white/10 text-white'
+                          : 'text-white/70 hover:bg-white/5'
+                      }`}
+                    >
+                      {lang.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
       

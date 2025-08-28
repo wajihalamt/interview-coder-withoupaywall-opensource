@@ -1,10 +1,9 @@
 // ProcessingHelper.ts
 import fs from "node:fs"
-import path from "node:path"
 import { ScreenshotHelper } from "./ScreenshotHelper"
 import { IProcessingHelperDeps } from "./main"
 import * as axios from "axios"
-import { app, BrowserWindow, dialog } from "electron"
+import { BrowserWindow } from "electron"
 import { OpenAI } from "openai"
 import { configHelper } from "./ConfigHelper"
 import Anthropic from '@anthropic-ai/sdk';
@@ -31,24 +30,13 @@ interface GeminiResponse {
     finishReason: string;
   }>;
 }
-interface AnthropicMessage {
-  role: 'user' | 'assistant';
-  content: Array<{
-    type: 'text' | 'image';
-    text?: string;
-    source?: {
-      type: 'base64';
-      media_type: string;
-      data: string;
-    };
-  }>;
-}
 export class ProcessingHelper {
   private deps: IProcessingHelperDeps
   private screenshotHelper: ScreenshotHelper
   private openaiClient: OpenAI | null = null
   private geminiApiKey: string | null = null
   private anthropicClient: Anthropic | null = null
+  private githubClient: OpenAI | null = null
 
   // AbortControllers for API requests
   private currentProcessingAbortController: AbortController | null = null
@@ -83,17 +71,20 @@ export class ProcessingHelper {
           });
           this.geminiApiKey = null;
           this.anthropicClient = null;
+          this.githubClient = null;
           console.log("OpenAI client initialized successfully");
         } else {
           this.openaiClient = null;
           this.geminiApiKey = null;
           this.anthropicClient = null;
+          this.githubClient = null;
           console.warn("No API key available, OpenAI client not initialized");
         }
       } else if (config.apiProvider === "gemini"){
         // Gemini client initialization
         this.openaiClient = null;
         this.anthropicClient = null;
+        this.githubClient = null;
         if (config.apiKey) {
           this.geminiApiKey = config.apiKey;
           console.log("Gemini API key set successfully");
@@ -101,12 +92,14 @@ export class ProcessingHelper {
           this.openaiClient = null;
           this.geminiApiKey = null;
           this.anthropicClient = null;
+          this.githubClient = null;
           console.warn("No API key available, Gemini client not initialized");
         }
       } else if (config.apiProvider === "anthropic") {
         // Reset other clients
         this.openaiClient = null;
         this.geminiApiKey = null;
+        this.githubClient = null;
         if (config.apiKey) {
           this.anthropicClient = new Anthropic({
             apiKey: config.apiKey,
@@ -118,7 +111,28 @@ export class ProcessingHelper {
           this.openaiClient = null;
           this.geminiApiKey = null;
           this.anthropicClient = null;
+          this.githubClient = null;
           console.warn("No API key available, Anthropic client not initialized");
+        }
+      } else if (config.apiProvider === "github") {
+        // GitHub Models API client initialization using OpenAI-compatible endpoint
+        this.openaiClient = null;
+        this.geminiApiKey = null;
+        this.anthropicClient = null;
+        if (config.apiKey) {
+          this.githubClient = new OpenAI({
+            apiKey: config.apiKey,
+            baseURL: 'https://models.inference.ai.azure.com',
+            timeout: 60000,
+            maxRetries: 2
+          });
+          console.log("GitHub Models API client initialized successfully");
+        } else {
+          this.openaiClient = null;
+          this.geminiApiKey = null;
+          this.anthropicClient = null;
+          this.githubClient = null;
+          console.warn("No API key available, GitHub Models API client not initialized");
         }
       }
     } catch (error) {
@@ -126,6 +140,7 @@ export class ProcessingHelper {
       this.openaiClient = null;
       this.geminiApiKey = null;
       this.anthropicClient = null;
+      this.githubClient = null;
     }
   }
 
@@ -236,6 +251,17 @@ export class ProcessingHelper {
       
       if (!this.anthropicClient) {
         console.error("Anthropic client not initialized");
+        mainWindow.webContents.send(
+          this.deps.PROCESSING_EVENTS.API_KEY_INVALID
+        );
+        return;
+      }
+    } else if (config.apiProvider === "github" && !this.githubClient) {
+      // Add check for GitHub client
+      this.initializeAIClient();
+      
+      if (!this.githubClient) {
+        console.error("GitHub Models API client not initialized");
         mainWindow.webContents.send(
           this.deps.PROCESSING_EVENTS.API_KEY_INVALID
         );
@@ -641,6 +667,69 @@ export class ProcessingHelper {
             error: "Failed to process with Anthropic API. Please check your API key or try again later."
           };
         }
+      } else if (config.apiProvider === "github") {
+        // Verify GitHub client
+        if (!this.githubClient) {
+          this.initializeAIClient(); // Try to reinitialize
+          
+          if (!this.githubClient) {
+            return {
+              success: false,
+              error: "GitHub Models API key not configured or invalid. Please check your settings."
+            };
+          }
+        }
+
+        // Use GitHub Models API for processing (OpenAI-compatible)
+        const messages = [
+          {
+            role: "system" as const, 
+            content: "You are a coding challenge interpreter. Analyze the screenshot of the coding problem and extract all relevant information. Return the information in JSON format with these fields: problem_statement, constraints, example_input, example_output. Just return the structured JSON without any other text."
+          },
+          {
+            role: "user" as const,
+            content: [
+              {
+                type: "text" as const, 
+                text: `Extract the coding problem details from these screenshots. Return in JSON format. Preferred coding language we gonna use for this problem is ${language}.`
+              },
+              ...imageDataList.map(data => ({
+                type: "image_url" as const,
+                image_url: { url: `data:image/png;base64,${data}` }
+              }))
+            ]
+          }
+        ];
+
+        // Send to GitHub Models API
+        try {
+          const extractionResponse = await this.githubClient.chat.completions.create({
+            model: config.extractionModel || "gpt-4o",
+            messages: messages,
+            max_tokens: 4000,
+            temperature: 0.2
+          });
+
+          // Parse the response
+          try {
+            const responseText = extractionResponse.choices[0].message.content;
+            // Handle when the API might wrap the JSON in markdown code blocks
+            const jsonText = responseText.replace(/```json|```/g, '').trim();
+            problemInfo = JSON.parse(jsonText);
+          } catch (error) {
+            console.error("Error parsing GitHub Models API response:", error);
+            return {
+              success: false,
+              error: "Failed to parse problem information. Please try again or use clearer screenshots."
+            };
+          }
+        } catch (error: any) {
+          console.error("Error using GitHub Models API:", error);
+          return {
+            success: false,
+            error: "Failed to process with GitHub Models API. Please check your API key or try again later."
+          };
+        }
       }
       
       // Update the user on progress
@@ -891,6 +980,35 @@ Your solution should be efficient, well-commented, and handle edge cases.
           return {
             success: false,
             error: "Failed to generate solution with Anthropic API. Please check your API key or try again later."
+          };
+        }
+      } else if (config.apiProvider === "github") {
+        // GitHub Models API processing
+        if (!this.githubClient) {
+          return {
+            success: false,
+            error: "GitHub Models API key not configured. Please check your settings."
+          };
+        }
+        
+        try {
+          // Send to GitHub Models API
+          const solutionResponse = await this.githubClient.chat.completions.create({
+            model: config.solutionModel || "gpt-4o",
+            messages: [
+              { role: "system", content: "You are an expert coding interview assistant. Provide clear, optimal solutions with detailed explanations." },
+              { role: "user", content: promptText }
+            ],
+            max_tokens: 4000,
+            temperature: 0.2
+          });
+
+          responseContent = solutionResponse.choices[0].message.content;
+        } catch (error: any) {
+          console.error("Error using GitHub Models API for solution:", error);
+          return {
+            success: false,
+            error: "Failed to generate solution with GitHub Models API. Please check your API key or try again later."
           };
         }
       }
@@ -1251,6 +1369,80 @@ If you include code examples, use proper markdown code blocks with language spec
             error: "Failed to process debug request with Anthropic API. Please check your API key or try again later."
           };
         }
+      } else if (config.apiProvider === "github") {
+        if (!this.githubClient) {
+          return {
+            success: false,
+            error: "GitHub Models API key not configured. Please check your settings."
+          };
+        }
+
+        try {
+          const debugPrompt = `I'm solving this coding problem: "${problemInfo.problem_statement}" in ${language}. I need help with debugging or improving my solution. Here are screenshots of my code, the errors or test cases. Please provide a detailed analysis with:
+1. What issues you found in my code
+2. Specific improvements and corrections
+3. Any optimizations that would make the solution better
+4. A clear explanation of the changes needed`;
+
+          const messages = [
+            {
+              role: "system" as const, 
+              content: `You are a coding interview assistant helping debug and improve solutions. Analyze these screenshots which include either error messages, incorrect outputs, or test cases, and provide detailed debugging help.
+
+Your response MUST follow this exact structure with these section headers (use ### for headers):
+### Issues Identified
+- List each issue as a bullet point with clear explanation
+
+### Specific Improvements and Corrections
+- List specific code changes needed as bullet points
+
+### Optimizations
+- List performance improvements as bullet points
+
+### Updated Code
+\`\`\`${language}
+// Updated, corrected code here
+\`\`\`
+
+Provide comprehensive, specific help to fix the code issues.`
+            },
+            {
+              role: "user" as const,
+              content: [
+                {
+                  type: "text" as const, 
+                  text: debugPrompt
+                },
+                ...imageDataList.map(data => ({
+                  type: "image_url" as const,
+                  image_url: { url: `data:image/png;base64,${data}` }
+                }))
+              ]
+            }
+          ];
+
+          if (mainWindow) {
+            mainWindow.webContents.send("processing-status", {
+              message: "Analyzing code and generating debug feedback with GitHub Models...",
+              progress: 60
+            });
+          }
+
+          const response = await this.githubClient.chat.completions.create({
+            model: config.debuggingModel || "gpt-4o",
+            messages: messages,
+            max_tokens: 4000,
+            temperature: 0.2
+          });
+
+          debugContent = response.choices[0].message.content;
+        } catch (error: any) {
+          console.error("Error using GitHub Models API for debugging:", error);
+          return {
+            success: false,
+            error: "Failed to process debug request with GitHub Models API. Please check your API key or try again later."
+          };
+        }
       }
       
       
@@ -1319,6 +1511,115 @@ If you include code examples, use proper markdown code blocks with language spec
     const mainWindow = this.deps.getMainWindow()
     if (wasCancelled && mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(this.deps.PROCESSING_EVENTS.NO_SCREENSHOTS)
+    }
+  }
+
+  // Chat message method for multi-provider support
+  async sendChatMessage(message: string, config: { apiProvider: string; extractionModel?: string; apiKey?: string }): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      console.log(`Sending chat message using ${config.apiProvider} provider`);
+
+      if (config.apiProvider === "github") {
+        if (!this.githubClient) {
+          return { success: false, error: "GitHub Models API client not initialized" };
+        }
+
+        const completion = await this.githubClient.chat.completions.create({
+          model: config.extractionModel || "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: "You are a helpful AI assistant specialized in helping with coding problems, debugging, and programming questions. Provide clear, concise, and helpful responses."
+            },
+            {
+              role: "user",
+              content: message
+            }
+          ],
+          max_tokens: 1000,
+          temperature: 0.7,
+        });
+
+        const aiResponse = completion.choices[0]?.message?.content;
+        if (!aiResponse) {
+          return { success: false, error: "No response received from GitHub Models API" };
+        }
+
+        return { success: true, message: aiResponse };
+
+      } else if (config.apiProvider === "gemini") {
+        if (!this.geminiApiKey) {
+          return { success: false, error: "Gemini API key not configured. Please check your settings." };
+        }
+
+        try {
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${config.extractionModel || "gemini-2.0-flash"}:generateContent?key=${this.geminiApiKey}`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [{
+                    text: `You are a helpful AI assistant specialized in helping with coding problems, debugging, and programming questions. Provide clear, concise, and helpful responses.
+
+User message: ${message}`
+                  }]
+                }]
+              }),
+            }
+          );
+
+          if (!response.ok) {
+            throw new Error(`Gemini API error: ${response.status} ${response.statusText}`);
+          }
+
+          const data = await response.json();
+          const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          
+          if (!content) {
+            return { success: false, error: "No response received from Gemini" };
+          }
+
+          return { success: true, message: content };
+
+        } catch (error: unknown) {
+          console.error("Error calling Gemini API:", error);
+          return { success: false, error: (error as Error).message || "Failed to call Gemini API" };
+        }
+
+      } else if (config.apiProvider === "anthropic") {
+        if (!this.anthropicClient) {
+          return { success: false, error: "Anthropic client not initialized" };
+        }
+
+        const completion = await this.anthropicClient.messages.create({
+          model: config.extractionModel || "claude-3-5-sonnet-20241022",
+          max_tokens: 1000,
+          system: "You are a helpful AI assistant specialized in helping with coding problems, debugging, and programming questions. Provide clear, concise, and helpful responses.",
+          messages: [
+            {
+              role: "user",
+              content: message
+            }
+          ],
+        });
+
+        const aiResponse = completion.content[0]?.type === 'text' ? completion.content[0].text : undefined;
+        if (!aiResponse) {
+          return { success: false, error: "No response received from Anthropic" };
+        }
+
+        return { success: true, message: aiResponse };
+      }
+
+      return { success: false, error: `Unsupported provider: ${config.apiProvider}` };
+
+    } catch (error: unknown) {
+      console.error("Error in sendChatMessage:", error);
+      return { success: false, error: (error as Error).message || "Failed to send chat message" };
     }
   }
 }
