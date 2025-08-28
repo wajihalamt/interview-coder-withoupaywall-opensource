@@ -89,7 +89,6 @@ export const ActionsDialog: React.FC<ActionsProps> = ({
           description: 'Capture current screen',
           shortcut: 'Ctrl+H',
           action: 'screenshot',
-          bgColor: 'bg-blue-600/20 hover:bg-blue-500/30 border-blue-500/30',
         },
         {
           icon: <Code className="w-5 h-5" />,
@@ -97,7 +96,6 @@ export const ActionsDialog: React.FC<ActionsProps> = ({
           description: 'Process screenshots and solve coding problems',
           shortcut: 'Ctrl+Enter',
           action: 'solve',
-          bgColor: 'bg-green-600/20 hover:bg-green-500/30 border-green-500/30',
         },
         {
           icon: <Trash2 className="w-5 h-5" />,
@@ -105,7 +103,6 @@ export const ActionsDialog: React.FC<ActionsProps> = ({
           description: 'Remove the most recent screenshot',
           shortcut: 'Ctrl+L',
           action: 'delete-last',
-          bgColor: 'bg-yellow-600/20 hover:bg-yellow-500/30 border-yellow-500/30',
         },
       ],
     },
@@ -117,7 +114,6 @@ export const ActionsDialog: React.FC<ActionsProps> = ({
           name: 'Programming Language Selection',
           description: `Choose preferred programming language (Current: ${currentLanguage})`,
           action: 'language-selection',
-          bgColor: 'bg-indigo-600/20 hover:bg-indigo-500/30 border-indigo-500/30',
         },
       ],
     },
@@ -130,7 +126,6 @@ export const ActionsDialog: React.FC<ActionsProps> = ({
           description: 'Toggle window visibility',
           shortcut: 'Ctrl+B',
           action: 'hide-window',
-          bgColor: 'bg-cyan-600/20 hover:bg-cyan-500/30 border-cyan-500/30',
         },
       ],
     },
@@ -143,7 +138,6 @@ export const ActionsDialog: React.FC<ActionsProps> = ({
           description: 'Cancel requests and reset all queues',
           shortcut: 'Ctrl+R',
           action: 'reset',
-          bgColor: 'bg-orange-600/20 hover:bg-orange-500/30 border-orange-500/30',
         },
       ],
     },
@@ -180,14 +174,18 @@ export const ActionsDialog: React.FC<ActionsProps> = ({
                   {category.items.map((item, itemIndex) => (
                     <div key={itemIndex}>
                       <div
-                        className={`flex items-start gap-4 p-4 ${item.bgColor || 'bg-slate-700/50 hover:bg-slate-700/70'} rounded-lg transition-colors border cursor-pointer`}
+                        className={`flex items-start gap-4 p-4 bg-slate-700/50 rounded-lg transition-colors ${
+                          'action' in item && item.action
+                            ? 'hover:bg-slate-700/70 cursor-pointer'
+                            : 'hover:bg-slate-700/60'
+                        }`}
                         onClick={() =>
                           'action' in item &&
                           item.action &&
                           handleAction(item.action)
                         }
                       >
-                        <div className="flex-shrink-0 text-white mt-0.5">
+                        <div className="flex-shrink-0 text-blue-400 mt-0.5">
                           {item.icon}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -196,12 +194,12 @@ export const ActionsDialog: React.FC<ActionsProps> = ({
                               {item.name}
                             </h4>
                             {'shortcut' in item && item.shortcut && (
-                              <span className="text-xs font-mono bg-white/20 px-2 py-1 rounded text-white/90">
+                              <span className="text-xs font-mono bg-slate-600 px-2 py-1 rounded text-slate-300">
                                 {item.shortcut}
                               </span>
                             )}
                           </div>
-                          <p className="text-sm text-slate-200 mt-1">
+                          <p className="text-sm text-slate-300 mt-1">
                             {item.description}
                           </p>
                         </div>
@@ -229,7 +227,7 @@ export const ActionsDialog: React.FC<ActionsProps> = ({
         <div className="flex justify-end p-4 border-t border-slate-700">
           <button
             onClick={() => onOpenChange(false)}
-            className="px-4 py-2 bg-slate-600/30 hover:bg-slate-500/40 border border-slate-500/30 text-white rounded-md transition-colors"
+            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-md transition-colors"
           >
             Close
           </button>
