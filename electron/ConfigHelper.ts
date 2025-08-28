@@ -7,7 +7,7 @@ import { OpenAI } from "openai"
 
 interface Config {
   apiKey: string;
-  apiProvider: "openai" | "gemini" | "anthropic";  // Added provider selection
+  apiProvider: "openai" | "gemini" | "anthropic" | "github";  // Added GitHub provider
   extractionModel: string;
   solutionModel: string;
   debuggingModel: string;
@@ -66,7 +66,7 @@ export class ConfigHelper extends EventEmitter {
   /**
    * Validate and sanitize model selection to ensure only allowed models are used
    */
-  private sanitizeModelSelection(model: string, provider: "openai" | "gemini" | "anthropic"): string {
+  private sanitizeModelSelection(model: string, provider: "openai" | "gemini" | "anthropic" | "github"): string {
     if (provider === "openai") {
       // Only allow gpt-4o and gpt-4o-mini for OpenAI
       const allowedModels = ['gpt-4o', 'gpt-4o-mini'];
@@ -91,6 +91,16 @@ export class ConfigHelper extends EventEmitter {
         return 'claude-3-7-sonnet-20250219';
       }
       return model;
+    } else if (provider === "github") {
+      // GitHub Models API only supports specific GPT models (very limited set)
+      const allowedModels = [
+        'gpt-4o', 'gpt-4o-mini'
+      ];
+      if (!allowedModels.includes(model)) {
+        console.warn(`Invalid GitHub model specified: ${model}. Using default model: gpt-4o`);
+        return 'gpt-4o';
+      }
+      return model;
     }
     // Default fallback
     return model;
@@ -103,7 +113,7 @@ export class ConfigHelper extends EventEmitter {
         const config = JSON.parse(configData);
         
         // Ensure apiProvider is a valid value
-        if (config.apiProvider !== "openai" && config.apiProvider !== "gemini"  && config.apiProvider !== "anthropic") {
+        if (config.apiProvider !== "openai" && config.apiProvider !== "gemini" && config.apiProvider !== "anthropic" && config.apiProvider !== "github") {
           config.apiProvider = "gemini"; // Default to Gemini if invalid
         }
         
@@ -186,6 +196,10 @@ export class ConfigHelper extends EventEmitter {
           updates.extractionModel = "claude-3-7-sonnet-20250219";
           updates.solutionModel = "claude-3-7-sonnet-20250219";
           updates.debuggingModel = "claude-3-7-sonnet-20250219";
+        } else if (updates.apiProvider === "github") {
+          updates.extractionModel = "gpt-4o";
+          updates.solutionModel = "gpt-4o";
+          updates.debuggingModel = "gpt-4o";
         } else {
           updates.extractionModel = "gemini-2.0-flash";
           updates.solutionModel = "gemini-2.0-flash";
