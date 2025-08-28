@@ -17,7 +17,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             <span className="text-2xl">🚀</span>
           </div>
           <h1 className="text-3xl font-bold text-white mb-2">
-            Interview Coder
+            WajihCoder
           </h1>
           <span className="inline-block px-3 py-1 bg-blue-500/20 text-blue-300 rounded-full text-sm font-medium">
             Unlocked Edition

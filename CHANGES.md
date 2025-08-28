@@ -1,4 +1,4 @@
-# Interview Coder - Unlocked Edition - Changes
+# WajihCoder - Unlocked Edition - Changes
 
 ## Major Architectural Changes
 

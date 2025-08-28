@@ -52,7 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex flex-col h-full">
           {/* Header */}
           <div className="p-3 border-b border-slate-600/30 flex justify-center">
-            <div className="text-2xl" title="Interview Coder - AI-Powered Problem Solver">
+            <div className="text-2xl" title="WajihCoder - AI-Powered Problem Solver">
               🚀
             </div>
           </div>
