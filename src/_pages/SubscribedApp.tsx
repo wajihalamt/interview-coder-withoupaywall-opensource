@@ -94,7 +94,12 @@ const SubscribedApp: React.FC<SubscribedAppProps> = ({
   return (
     <div className="flex h-full">
       {/* Sidebar */}
-      <Sidebar currentView={sidebarView} onViewChange={setSidebarView} />
+      <Sidebar
+        currentView={sidebarView}
+        onViewChange={setSidebarView}
+        currentLanguage={currentLanguage}
+        setLanguage={setLanguage}
+      />
 
       {/* Main Content Area */}
       <div className="flex-1 min-h-0 overflow-y-auto content-stable no-flicker content-max-stable">

@@ -322,19 +322,48 @@ export function initializeIpcHandlers(deps: IIpcHandlerDeps): void {
   // Delete last screenshot handler
   ipcMain.handle("delete-last-screenshot", async () => {
     try {
-      const queue = deps.getView() === "queue" 
-        ? deps.getScreenshotQueue() 
-        : deps.getExtraScreenshotQueue()
+      // Check both queues to find screenshots
+      const mainQueue = deps.getScreenshotQueue()
+      const extraQueue = deps.getExtraScreenshotQueue()
+      const currentView = deps.getView()
       
-      if (queue.length === 0) {
+      console.log("Delete last screenshot debug:")
+      console.log("- Current view:", currentView)
+      console.log("- Main queue length:", mainQueue.length)
+      console.log("- Extra queue length:", extraQueue.length)
+      console.log("- Main queue contents:", mainQueue)
+      console.log("- Extra queue contents:", extraQueue)
+      
+      let queue: string[]
+      let queueName: string
+      
+      // Prefer the current view's queue, but fall back to whichever has screenshots
+      if (currentView === "queue" && mainQueue.length > 0) {
+        queue = mainQueue
+        queueName = "main"
+      } else if (currentView !== "queue" && extraQueue.length > 0) {
+        queue = extraQueue
+        queueName = "extra"
+      } else if (mainQueue.length > 0) {
+        queue = mainQueue
+        queueName = "main"
+      } else if (extraQueue.length > 0) {
+        queue = extraQueue
+        queueName = "extra"
+      } else {
+        console.log("No screenshots found in either queue")
         return { success: false, error: "No screenshots to delete" }
       }
       
-      // Get the last screenshot in the queue
+      console.log(`Deleting last screenshot from ${queueName} queue (${queue.length} screenshots)`)
+      
+      // Get the last screenshot in the selected queue
       const lastScreenshot = queue[queue.length - 1]
+      console.log("About to delete screenshot:", lastScreenshot)
       
       // Delete it
       const result = await deps.deleteScreenshot(lastScreenshot)
+      console.log("Delete result:", result)
       
       // Notify the renderer about the change
       const mainWindow = deps.getMainWindow()
@@ -342,6 +371,7 @@ export function initializeIpcHandlers(deps: IIpcHandlerDeps): void {
         mainWindow.webContents.send("screenshot-deleted", { path: lastScreenshot })
       }
       
+      console.log("Returning result:", result)
       return result
     } catch (error) {
       console.error("Error deleting last screenshot:", error)

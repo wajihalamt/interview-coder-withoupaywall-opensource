@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import ScreenshotQueue from '../components/Queue/ScreenshotQueue';
 import { QueueCommandsSimple } from '../components/Queue/QueueCommandsSimple';
 
@@ -30,6 +30,7 @@ const Queue: React.FC<QueueProps> = ({
   setLanguage,
 }) => {
   const { showToast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: screenshots = [], refetch } = useQuery<Screenshot[]>({
     queryKey: ['screenshots'],
@@ -38,6 +39,22 @@ const Queue: React.FC<QueueProps> = ({
     gcTime: Infinity,
     refetchOnWindowFocus: false,
   });
+
+  // Listen for screenshot deletion events
+  useEffect(() => {
+    const handleScreenshotDeleted = () => {
+      console.log('Screenshot deleted event received, refetching screenshots');
+      queryClient.invalidateQueries({ queryKey: ['screenshots'] });
+    };
+
+    // Add event listener for screenshot deletion
+    window.electronAPI.onScreenshotDeleted?.(handleScreenshotDeleted);
+
+    return () => {
+      // Cleanup listener if available
+      window.electronAPI.removeScreenshotDeletedListener?.(handleScreenshotDeleted);
+    };
+  }, [queryClient]);
 
   const handleDeleteScreenshot = async (index: number) => {
     const screenshotToDelete = screenshots[index];

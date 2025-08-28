@@ -1,24 +1,48 @@
 import React, { useState } from 'react';
-import { Settings, Home, X } from 'lucide-react';
+import { Settings, Home, Keyboard, Zap } from 'lucide-react';
 import { SettingsDialog } from '../Settings/SettingsDialog';
+import { ShortcutsDialog } from '../Shortcuts/ShortcutsDialog';
+import { ActionsDialog } from '../Actions/ActionsDialog';
 
 interface SidebarProps {
   currentView: 'main' | 'settings';
   onViewChange: (view: 'main' | 'settings') => void;
+  currentLanguage: string;
+  setLanguage: (language: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   currentView,
   onViewChange,
+  currentLanguage,
+  setLanguage,
 }) => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+  const [isActionsOpen, setIsActionsOpen] = useState(false);
 
   const handleSettingsClick = () => {
     setIsSettingsOpen(true);
   };
 
+  const handleShortcutsClick = () => {
+    setIsShortcutsOpen(true);
+  };
+
+  const handleActionsClick = () => {
+    setIsActionsOpen(true);
+  };
+
   const handleCloseSettings = (open: boolean) => {
     setIsSettingsOpen(false);
+  };
+
+  const handleCloseShortcuts = (open: boolean) => {
+    setIsShortcutsOpen(false);
+  };
+
+  const handleCloseActions = (open: boolean) => {
+    setIsActionsOpen(false);
   };
 
   return (
@@ -52,6 +76,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="font-medium">Main</span>
             </button>
 
+            {/* Actions Tab */}
+            <button
+              onClick={handleActionsClick}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all duration-200 text-slate-300 hover:bg-slate-700/50 hover:text-white"
+            >
+              <Zap className="w-5 h-5" />
+              <span className="font-medium">Actions</span>
+            </button>
+
             {/* Settings Tab */}
             <button
               onClick={handleSettingsClick}
@@ -63,6 +96,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
               <Settings className="w-5 h-5" />
               <span className="font-medium">Settings</span>
+            </button>
+
+            {/* Shortcuts Tab */}
+            <button
+              onClick={handleShortcutsClick}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all duration-200 text-slate-300 hover:bg-slate-700/50 hover:text-white"
+            >
+              <Keyboard className="w-5 h-5" />
+              <span className="font-medium">Shortcuts</span>
             </button>
           </div>
 
@@ -76,10 +118,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
+      {/* Actions Dialog */}
+      <ActionsDialog
+        open={isActionsOpen}
+        onOpenChange={handleCloseActions}
+        currentLanguage={currentLanguage}
+        setLanguage={setLanguage}
+      />
+
       {/* Settings Dialog */}
       <SettingsDialog
         open={isSettingsOpen}
         onOpenChange={handleCloseSettings}
+      />
+
+      {/* Shortcuts Dialog */}
+      <ShortcutsDialog
+        open={isShortcutsOpen}
+        onOpenChange={handleCloseShortcuts}
       />
     </>
   );
