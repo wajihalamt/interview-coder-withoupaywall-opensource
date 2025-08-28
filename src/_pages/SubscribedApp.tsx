@@ -65,7 +65,6 @@ const SubscribedApp: React.FC<SubscribedAppProps> = ({
         setView('queue');
       }),
       window.electronAPI.onResetView(() => {
-        console.log('SubscribedApp: received reset-view event, removing screenshot queries...');
         queryClient.removeQueries({
           queryKey: ['screenshots'],
         });
@@ -76,12 +75,6 @@ const SubscribedApp: React.FC<SubscribedAppProps> = ({
           queryKey: ['problem_statement'],
         });
         setView('queue');
-      }),
-      window.electronAPI.onReset(() => {
-        console.log('SubscribedApp: received reset event, removing screenshot queries...');
-        queryClient.removeQueries({
-          queryKey: ['screenshots'],
-        });
       }),
       window.electronAPI.onProblemExtracted((data: unknown) => {
         if (view === 'queue') {

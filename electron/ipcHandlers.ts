@@ -6,9 +6,6 @@ import { randomBytes } from "crypto"
 import { IIpcHandlerDeps } from "./main"
 import { configHelper } from "./ConfigHelper"
 
-// Global AbortController for unified chat processing
-let currentChatProcessingController: AbortController | null = null;
-
 export function initializeIpcHandlers(deps: IIpcHandlerDeps): void {
   console.log("Initializing IPC handlers")
 
@@ -235,11 +232,9 @@ export function initializeIpcHandlers(deps: IIpcHandlerDeps): void {
     }
   })
 
-  // Process screenshot handlers - Now uses chat processing for unified experience
+  // Process screenshot handlers
   ipcMain.handle("trigger-process-screenshots", async () => {
     try {
-      console.log("Processing screenshots for unified chat experience...");
-
       // Check for API key before processing
       if (!configHelper.hasApiKey()) {
         const mainWindow = deps.getMainWindow();
@@ -248,183 +243,12 @@ export function initializeIpcHandlers(deps: IIpcHandlerDeps): void {
         }
         return { success: false, error: "API key required" };
       }
-
-      // Get screenshot queue from deps
-      const screenshotQueue = deps.getScreenshotQueue() || [];
       
-      if (screenshotQueue.length === 0) {
-        const mainWindow = deps.getMainWindow();
-        if (mainWindow) {
-          mainWindow.webContents.send(deps.PROCESSING_EVENTS.NO_SCREENSHOTS);
-        }
-        return {
-          success: false,
-          error: "No screenshots found. Please take some screenshots first using Ctrl+H."
-        };
-      }
-
-      // Create new AbortController for this processing session
-      currentChatProcessingController = new AbortController();
-      console.log(`Processing ${screenshotQueue.length} screenshots for chat display`);
-
-      // Use the existing processing helper
-      const processingHelper = deps.processingHelper;
-      if (!processingHelper) {
-        return {
-          success: false,
-          error: "Processing helper not initialized"
-        };
-      }
-
-      // Process screenshots using the same logic as processScreenshotsForChat
-      const screenshots = await Promise.all(
-        screenshotQueue.map(async (path: string) => {
-          try {
-            if (!fs.existsSync(path)) {
-              console.warn(`Screenshot file does not exist: ${path}`);
-              return null;
-            }
-            
-            return {
-              path,
-              preview: await deps.getImagePreview(path) || '',
-              data: fs.readFileSync(path).toString('base64')
-            };
-          } catch (err) {
-            console.error(`Error reading screenshot ${path}:`, err);
-            return null;
-          }
-        })
-      );
-
-      const validScreenshots = screenshots.filter(Boolean) as Array<{ path: string; preview: string; data: string }>;
-      
-      if (validScreenshots.length === 0) {
-        return {
-          success: false,
-          error: "Failed to load screenshot data"
-        };
-      }
-
-      console.log(`Processing ${validScreenshots.length} screenshots for unified chat display`);
-
-      // Get main window for event emission
-      const mainWindow = deps.getMainWindow();
-
-      // Call the processing helper's internal method to process screenshots
-      const internalProcessingHelper = processingHelper as unknown as {
-        processScreenshotsHelper: (screenshots: Array<{ path: string; data: string }>, signal: AbortSignal) => Promise<{ success: boolean; data?: Record<string, unknown>; error?: string }>
-      };
-      
-      const result = await internalProcessingHelper.processScreenshotsHelper(validScreenshots, currentChatProcessingController.signal);
-      
-      if (!result.success) {
-        // Send error directly to chat instead of processing events
-        if (mainWindow) {
-          mainWindow.webContents.send("screenshots-processed-for-chat", {
-            success: false,
-            error: result.error || "Failed to process screenshots"
-          });
-        }
-        return {
-          success: false,
-          error: result.error || "Failed to process screenshots"
-        };
-      }
-
-      // Extract the relevant data for chat
-      const data = result.data;
-      const config = configHelper.loadConfig();
-      
-      // Send the results directly to the chat interface via IPC event
-      if (mainWindow) {
-        mainWindow.webContents.send("screenshots-processed-for-chat", {
-          success: true,
-          data: {
-            problemStatement: data?.problem_statement || null,
-            solution: data?.code || null,
-            thoughts: data?.thoughts || null,
-            timeComplexity: data?.time_complexity || null,
-            spaceComplexity: data?.space_complexity || null,
-            language: config.language || 'javascript'
-          }
-        });
-      }
-
-      // Clear the screenshot queues since processing is complete and results are in chat
-      console.log("Clearing screenshot queues after successful processing");
-      deps.clearQueues();
-      
-      // Notify frontend to refresh screenshot display
-      if (mainWindow) {
-        mainWindow.webContents.send("reset-view");
-      }
-
-      // Clear the controller
-      currentChatProcessingController = null;
-
-      return { success: true };
-
-    } catch (error: unknown) {
-      console.error("Error processing screenshots:", error);
-      
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      const mainWindow = deps.getMainWindow();
-      
-      // Check if it was aborted
-      const isAborted = error instanceof Error && (error.name === 'AbortError' || error.message.includes('aborted'));
-      
-      // Send error directly to chat instead of using processing events
-      if (mainWindow) {
-        mainWindow.webContents.send("screenshots-processed-for-chat", {
-          success: false,
-          error: isAborted ? "Processing was stopped by user" : errorMessage
-        });
-      }
-      
-      // Clear the controller
-      currentChatProcessingController = null;
-      
-      return {
-        success: false,
-        error: errorMessage || "Failed to process screenshots"
-      };
-    }
-  })
-
-  // Stop processing handler
-  ipcMain.handle("stop-processing", async () => {
-    try {
-      console.log("Stopping processing requested...");
-      
-      if (currentChatProcessingController) {
-        console.log("Aborting current chat processing...");
-        currentChatProcessingController.abort();
-        currentChatProcessingController = null;
-        
-        // Also stop any ongoing processing in the ProcessingHelper
-        const processingHelper = deps.processingHelper;
-        if (processingHelper) {
-          processingHelper.cancelOngoingRequests?.();
-        }
-        
-        const mainWindow = deps.getMainWindow();
-        if (mainWindow) {
-          mainWindow.webContents.send("screenshots-processed-for-chat", {
-            success: false,
-            error: "Processing was stopped by user"
-          });
-        }
-        
-        return { success: true, message: "Processing stopped" };
-      } else {
-        console.log("No processing to stop");
-        return { success: false, message: "No processing currently running" };
-      }
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error("Error stopping processing:", errorMessage);
-      return { success: false, error: errorMessage };
+      await deps.processingHelper?.processScreenshots()
+      return { success: true }
+    } catch (error) {
+      console.error("Error processing screenshots:", error)
+      return { error: "Failed to process screenshots" }
     }
   })
 

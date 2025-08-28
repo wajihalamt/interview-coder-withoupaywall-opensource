@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, Square } from 'lucide-react';
+import { Send, Bot, User, Loader2, Camera } from 'lucide-react';
 import { useToast } from '../../contexts/toast';
 
 interface Message {
@@ -17,7 +17,6 @@ const ChatBox: React.FC<ChatBoxProps> = ({ className = '' }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isProcessingScreenshots, setIsProcessingScreenshots] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { showToast } = useToast();
@@ -28,7 +27,7 @@ const ChatBox: React.FC<ChatBoxProps> = ({ className = '' }) => {
       try {
         const response = await window.electronAPI.getChatHistory?.();
         if (response?.success && response.messages) {
-          const loadedMessages: Message[] = response.messages.map((msg: { id: string; type: string; content: string; timestamp: string }) => ({
+          const loadedMessages: Message[] = response.messages.map((msg: any) => ({
             ...msg,
             timestamp: new Date(msg.timestamp)
           }));
@@ -47,81 +46,8 @@ const ChatBox: React.FC<ChatBoxProps> = ({ className = '' }) => {
       setMessages([]);
     });
 
-    // Listen for screenshots processed for chat (from Ctrl+Enter or Process Screenshots button)
-    const cleanupScreenshotsProcessed = window.electronAPI.onScreenshotsProcessedForChat?.((data: { success: boolean; data?: { problemStatement: string; solution: string; thoughts: string; timeComplexity: string; spaceComplexity: string; language: string; } }) => {
-      console.log('Screenshots processed for chat event received', data);
-      
-      if (data.success) {
-        handleScreenshotProcessingResults(data);
-      } else {
-        const errorMessage: Message = {
-          id: Date.now().toString(),
-          type: 'ai',
-          content: '❌ Sorry, I encountered an error while processing the screenshots. Please try again.',
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, errorMessage]);
-        saveMessageToPersistentStorage(errorMessage);
-      }
-    });
-
     return () => {
       cleanupChatCleared?.();
-      cleanupScreenshotsProcessed?.();
-    };
-  }, []);
-
-  // Listen for AI thinking messages from preload script
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data.type === 'ai-thinking-start') {
-        setIsProcessingScreenshots(true);
-        const thinkingMessage: Message = {
-          id: `thinking-${Date.now()}`,
-          type: 'ai',
-          content: event.data.message,
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, thinkingMessage]);
-        // Don't save thinking message to persistent storage as it's temporary
-      } else if (event.data.type === 'ai-thinking-error') {
-        setIsProcessingScreenshots(false);
-        const errorMessage: Message = {
-          id: Date.now().toString(),
-          type: 'ai',
-          content: event.data.message,
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, errorMessage]);
-        saveMessageToPersistentStorage(errorMessage);
-      } else if (event.data.type === 'processing-stopped') {
-        setIsProcessingScreenshots(false);
-        // Remove any thinking messages
-        setMessages(prev => prev.filter(msg => !msg.id.startsWith('thinking-')));
-        const stopMessage: Message = {
-          id: Date.now().toString(),
-          type: 'ai',
-          content: '⏹️ Processing stopped by user',
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, stopMessage]);
-        saveMessageToPersistentStorage(stopMessage);
-      } else if (event.data.type === 'processing-stop-error') {
-        const errorMessage: Message = {
-          id: Date.now().toString(),
-          type: 'ai',
-          content: event.data.message,
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, errorMessage]);
-        saveMessageToPersistentStorage(errorMessage);
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    
-    return () => {
-      window.removeEventListener('message', handleMessage);
     };
   }, []);
 
@@ -138,48 +64,109 @@ const ChatBox: React.FC<ChatBoxProps> = ({ className = '' }) => {
     }
   };
 
-  // Handle screenshot processing results from event (unified workflow)
-  const handleScreenshotProcessingResults = (data: { 
-    success: boolean; 
-    data?: { 
-      problemStatement: string; 
-      solution: string; 
-      thoughts: string; 
-      timeComplexity: string; 
-      spaceComplexity: string; 
-      language: string; 
-    } 
-  }) => {
-    // Remove any thinking messages first and clear processing state
-    setMessages(prev => prev.filter(msg => !msg.id.startsWith('thinking-')));
-    setIsProcessingScreenshots(false);
-    
-    if (data.success && data.data) {
-      const aiMessage: Message = {
-        id: Date.now().toString(),
+  // Process screenshots and add results to chat
+  const handleProcessScreenshots = async () => {
+    if (isLoading) return;
+
+    setIsLoading(true);
+
+    // Add processing message to chat
+    const processingMessage: Message = {
+      id: Date.now().toString(),
+      type: 'ai',
+      content: '🔄 Processing screenshots... This may take a moment.',
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, processingMessage]);
+    await saveMessageToPersistentStorage(processingMessage);
+
+    try {
+      // Call the screenshot processing through Electron API
+      const response = await window.electronAPI.processScreenshotsForChat?.();
+      
+      if (response?.success) {
+        // Remove the processing message
+        setMessages(prev => prev.filter(msg => msg.id !== processingMessage.id));
+
+        // Add problem statement if available
+        if (response.problemStatement) {
+          const problemMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            type: 'ai',
+            content: `📋 **Problem Statement:**\n\n${response.problemStatement}`,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, problemMessage]);
+          await saveMessageToPersistentStorage(problemMessage);
+        }
+
+        // Add solution if available
+        if (response.solution) {
+          const solutionMessage: Message = {
+            id: (Date.now() + 2).toString(),
+            type: 'ai',
+            content: `💡 **Solution:**\n\n\`\`\`${response.language || 'javascript'}\n${response.solution}\n\`\`\``,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, solutionMessage]);
+          await saveMessageToPersistentStorage(solutionMessage);
+        }
+
+        // Add thoughts if available
+        if (response.thoughts && response.thoughts.length > 0) {
+          const thoughtsContent = response.thoughts.map((thought: string, index: number) => 
+            `${index + 1}. ${thought}`
+          ).join('\n');
+          
+          const thoughtsMessage: Message = {
+            id: (Date.now() + 3).toString(),
+            type: 'ai',
+            content: `🤔 **My Thoughts:**\n\n${thoughtsContent}`,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, thoughtsMessage]);
+          await saveMessageToPersistentStorage(thoughtsMessage);
+        }
+
+        // Add complexity analysis if available
+        if (response.timeComplexity || response.spaceComplexity) {
+          const complexityContent = [
+            response.timeComplexity ? `**Time Complexity:** ${response.timeComplexity}` : '',
+            response.spaceComplexity ? `**Space Complexity:** ${response.spaceComplexity}` : ''
+          ].filter(Boolean).join('\n');
+
+          const complexityMessage: Message = {
+            id: (Date.now() + 4).toString(),
+            type: 'ai',
+            content: `📊 **Complexity Analysis:**\n\n${complexityContent}`,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, complexityMessage]);
+          await saveMessageToPersistentStorage(complexityMessage);
+        }
+
+        showToast('Success', 'Screenshots processed successfully!', 'success');
+      } else {
+        throw new Error(response?.error || 'Failed to process screenshots');
+      }
+    } catch (error) {
+      console.error('Error processing screenshots:', error);
+      
+      // Remove the processing message and add error message
+      setMessages(prev => prev.filter(msg => msg.id !== processingMessage.id));
+      
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
         type: 'ai',
-        content: `## 📸 Screenshot Analysis Complete
-
-**Problem Statement:**
-${data.data.problemStatement}
-
-**Solution:**
-\`\`\`${data.data.language || 'python'}
-${data.data.solution}
-\`\`\`
-
-**Approach & Thoughts:**
-${data.data.thoughts}
-
-**Complexity Analysis:**
-- **Time Complexity:** ${data.data.timeComplexity}
-- **Space Complexity:** ${data.data.spaceComplexity}`,
+        content: '❌ Sorry, I encountered an error while processing the screenshots. Please make sure you have taken some screenshots first and try again.',
         timestamp: new Date()
       };
+      setMessages(prev => [...prev, errorMessage]);
+      await saveMessageToPersistentStorage(errorMessage);
       
-      setMessages(prev => [...prev, aiMessage]);
-      saveMessageToPersistentStorage(aiMessage);
-      showToast('Success', 'Screenshots processed successfully!', 'success');
+      showToast('Error', 'Failed to process screenshots', 'error');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -242,23 +229,6 @@ ${data.data.thoughts}
       await saveMessageToPersistentStorage(errorMessage);
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleStopProcessing = async () => {
-    try {
-      console.log('Stopping processing...');
-      const result = await window.electronAPI.stopProcessing();
-      if (result.success) {
-        console.log('Processing stopped successfully');
-        showToast('Info', 'Processing stopped', 'neutral');
-      } else {
-        console.log('Failed to stop processing:', result.message);
-        showToast('Warning', result.message || 'No processing to stop', 'neutral');
-      }
-    } catch (error) {
-      console.error('Error stopping processing:', error);
-      showToast('Error', 'Failed to stop processing', 'error');
     }
   };
 
@@ -365,29 +335,6 @@ ${data.data.thoughts}
 
       {/* Input */}
       <div className="p-4 border-t border-slate-600/30">
-        {/* Screenshot Processing Status Indicator */}
-        {isProcessingScreenshots && (
-          <div className="mb-3 p-3 bg-blue-600/20 border border-blue-500/30 rounded-lg">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
-                <div>
-                  <div className="text-sm font-medium text-blue-300">Processing Screenshots</div>
-                  <div className="text-xs text-blue-400/70">AI is analyzing your screenshots... This may take a moment.</div>
-                </div>
-              </div>
-              <button
-                onClick={handleStopProcessing}
-                className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 hover:border-red-500/50 text-red-300 hover:text-red-200 rounded-md transition-colors text-xs font-medium flex items-center gap-1.5"
-                title="Stop processing (Ctrl+Shift+S)"
-              >
-                <Square className="w-3 h-3" />
-                Stop
-              </button>
-            </div>
-          </div>
-        )}
-        
         <div className="flex gap-3">
           <textarea
             ref={inputRef}
@@ -397,11 +344,23 @@ ${data.data.thoughts}
             placeholder="Ask the AI assistant anything..."
             className="flex-1 bg-slate-700/50 border border-slate-600/50 rounded-lg px-4 py-3 text-white placeholder-slate-400 resize-none focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/25 transition-colors"
             rows={1}
-            disabled={isLoading || isProcessingScreenshots}
+            disabled={isLoading}
           />
           <button
+            onClick={handleProcessScreenshots}
+            disabled={isLoading}
+            className="px-4 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center justify-center"
+            title="Process Screenshots"
+          >
+            {isLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Camera className="w-4 h-4" />
+            )}
+          </button>
+          <button
             onClick={handleSendMessage}
-            disabled={!inputValue.trim() || isLoading || isProcessingScreenshots}
+            disabled={!inputValue.trim() || isLoading}
             className="px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center justify-center"
           >
             {isLoading ? (
@@ -412,8 +371,7 @@ ${data.data.thoughts}
           </button>
         </div>
         <p className="text-xs text-slate-500 mt-2">
-          Press Enter to send, Shift+Enter for new line • Press Ctrl+Enter to process screenshots • Press Ctrl+Shift+S to stop processing
-          {isProcessingScreenshots && <span className="text-blue-400"> • Screenshots are being processed...</span>}
+          Press Enter to send, Shift+Enter for new line • Click 📷 to process screenshots
         </p>
       </div>
     </div>

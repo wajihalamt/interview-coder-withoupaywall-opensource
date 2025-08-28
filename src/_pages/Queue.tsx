@@ -79,16 +79,7 @@ const Queue: React.FC<QueueProps> = ({
     // Set up event listeners only - no dimension updates
     const cleanupFunctions = [
       window.electronAPI.onScreenshotTaken(() => refetch()),
-      window.electronAPI.onResetView(() => {
-        console.log('Queue: received reset-view event, refetching screenshots...');
-        queryClient.invalidateQueries({ queryKey: ['screenshots'] });
-        refetch();
-      }),
-      window.electronAPI.onReset(() => {
-        console.log('Queue: received reset event, invalidating screenshots cache...');
-        queryClient.invalidateQueries({ queryKey: ['screenshots'] });
-        refetch();
-      }),
+      window.electronAPI.onResetView(() => refetch()),
       window.electronAPI.onDeleteLastScreenshot(async () => {
         if (screenshots.length > 0) {
           await handleDeleteScreenshot(screenshots.length - 1);

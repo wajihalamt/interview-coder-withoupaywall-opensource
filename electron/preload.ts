@@ -90,21 +90,6 @@ const electronAPI = {
       ipcRenderer.removeListener(PROCESSING_EVENTS.INITIAL_START, subscription)
     }
   },
-  onScreenshotsProcessedForChat: (callback: (data: {
-    success: boolean;
-    problemStatement?: string | null;
-    solution?: string | null;
-    thoughts?: string[] | null;
-    timeComplexity?: string | null;
-    spaceComplexity?: string | null;
-    language?: string;
-  }) => void) => {
-    const subscription = (_: any, data: any) => callback(data)
-    ipcRenderer.on("screenshots-processed-for-chat", subscription)
-    return () => {
-      ipcRenderer.removeListener("screenshots-processed-for-chat", subscription)
-    }
-  },
   onDebugStart: (callback: () => void) => {
     const subscription = () => callback()
     ipcRenderer.on(PROCESSING_EVENTS.DEBUG_START, subscription)
@@ -276,72 +261,11 @@ const electronAPI = {
   saveChatMessage: (message: any) => ipcRenderer.invoke("save-chat-message", message),
   clearChatHistory: () => ipcRenderer.invoke("clear-chat-history"),
   processScreenshotsForChat: () => ipcRenderer.invoke("process-screenshots-for-chat"),
-  stopProcessing: () => ipcRenderer.invoke("stop-processing"),
   
   // Window management
   minimize: () => ipcRenderer.invoke("minimize-window"),
   quit: () => ipcRenderer.invoke("quit-app")
 }
-
-// Handle Ctrl+Enter shortcut from main process 
-ipcRenderer.on("ctrl-enter-pressed", async () => {
-  console.log("Ctrl+Enter event received in renderer, triggering unified chat processing");
-  
-  try {
-    // First check if there are screenshots without processing
-    const screenshots = await ipcRenderer.invoke("get-screenshots");
-    
-    if (!screenshots || screenshots.length === 0) {
-      // No screenshots, don't show thinking message
-      console.log("No screenshots found, skipping processing");
-      // Still call the handler so it sends the appropriate NO_SCREENSHOTS event
-      await ipcRenderer.invoke("trigger-process-screenshots");
-      return;
-    }
-    
-    // Screenshots exist, show thinking message and process
-    console.log(`Found ${screenshots.length} screenshots, starting processing...`);
-    window.postMessage({
-      type: 'ai-thinking-start',
-      message: '🤔 AI is analyzing your screenshots... This may take a moment.'
-    }, '*');
-    
-    // Now process the screenshots
-    const result = await ipcRenderer.invoke("trigger-process-screenshots");
-    console.log("Processing completed:", result);
-    
-  } catch (error) {
-    console.error("Error handling Ctrl+Enter in renderer:", error);
-    // Send error message to chat
-    window.postMessage({
-      type: 'ai-thinking-error',
-      message: '❌ Sorry, I encountered an error while processing the screenshots. Please try again.'
-    }, '*');
-  }
-});
-
-// Handle stop processing request from shortcut
-ipcRenderer.on("stop-processing-requested", async () => {
-  console.log("Stop processing requested via shortcut, calling stop-processing handler...");
-  
-  try {
-    const result = await ipcRenderer.invoke("stop-processing");
-    console.log("Stop processing result:", result);
-    
-    // Send message to frontend about the stop
-    window.postMessage({
-      type: 'processing-stopped',
-      message: result.success ? 'Processing stopped' : 'Failed to stop processing'
-    }, '*');
-    
-  } catch (error) {
-    console.error("Error stopping processing:", error);
-    window.postMessage({
-      type: 'processing-stop-error',
-      message: '❌ Failed to stop processing'
-    }, '*');
-  }
-});
 
 // Before exposing the API
 console.log(
