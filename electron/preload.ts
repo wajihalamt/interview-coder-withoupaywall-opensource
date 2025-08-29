@@ -1,6 +1,5 @@
 console.log("Preload script starting...")
-import { contextBridge, ipcRenderer } from "electron"
-const { shell } = require("electron")
+import { contextBridge, ipcRenderer, shell, type IpcRendererEvent } from "electron"
 
 export const PROCESSING_EVENTS = {
   //global states
@@ -24,6 +23,11 @@ export const PROCESSING_EVENTS = {
 
 // At the top of the file
 console.log("Preload script is running")
+
+// Keep track of wrapper listeners so we can remove them later by original callback
+type ScreenshotDeletedCb = (data: { path: string }) => void;
+type IpcListener = (event: IpcRendererEvent, ...args: unknown[]) => void;
+const screenshotDeletedListenerMap = new WeakMap<ScreenshotDeletedCb, IpcListener>();
 
 const electronAPI = {
   // Original methods
@@ -52,7 +56,7 @@ const electronAPI = {
   onScreenshotTaken: (
     callback: (data: { path: string; preview: string }) => void
   ) => {
-    const subscription = (_: any, data: { path: string; preview: string }) =>
+    const subscription = (_event: IpcRendererEvent, data: { path: string; preview: string }) =>
       callback(data)
     ipcRenderer.on("screenshot-taken", subscription)
     return () => {
@@ -60,14 +64,20 @@ const electronAPI = {
     }
   },
   onScreenshotDeleted: (callback: (data: { path: string }) => void) => {
-    const subscription = (_: any, data: { path: string }) => callback(data)
+    const subscription = (_event: IpcRendererEvent, data: { path: string }) => callback(data)
+    screenshotDeletedListenerMap.set(callback, subscription)
     ipcRenderer.on("screenshot-deleted", subscription)
     return () => {
       ipcRenderer.removeListener("screenshot-deleted", subscription)
+      screenshotDeletedListenerMap.delete(callback)
     }
   },
   removeScreenshotDeletedListener: (callback: (data: { path: string }) => void) => {
-    ipcRenderer.removeListener("screenshot-deleted", callback)
+    const subscription = screenshotDeletedListenerMap.get(callback)
+    if (subscription) {
+      ipcRenderer.removeListener("screenshot-deleted", subscription)
+      screenshotDeletedListenerMap.delete(callback)
+    }
   },
   onChatHistoryCleared: (callback: () => void) => {
     const subscription = () => callback()
@@ -99,36 +109,36 @@ const electronAPI = {
     spaceComplexity?: string | null;
     language?: string;
   }) => void) => {
-    const subscription = (_: any, data: any) => callback(data)
+    const subscription = (_event: IpcRendererEvent, data: {
+      success: boolean;
+      problemStatement?: string | null;
+      solution?: string | null;
+      thoughts?: string[] | null;
+      timeComplexity?: string | null;
+      spaceComplexity?: string | null;
+      language?: string;
+    }) => callback(data)
     ipcRenderer.on("screenshots-processed-for-chat", subscription)
     return () => {
       ipcRenderer.removeListener("screenshots-processed-for-chat", subscription)
     }
   },
-  onDebugStart: (callback: () => void) => {
-    const subscription = () => callback()
-    ipcRenderer.on(PROCESSING_EVENTS.DEBUG_START, subscription)
+  onDebugSuccess: (callback: (data: unknown) => void) => {
+    const subscription = (_event: IpcRendererEvent, data: unknown) => callback(data)
+    ipcRenderer.on("debug-success", subscription)
     return () => {
-      ipcRenderer.removeListener(PROCESSING_EVENTS.DEBUG_START, subscription)
-    }
-  },
-  onDebugSuccess: (callback: (data: any) => void) => {
-    ipcRenderer.on("debug-success", (_event, data) => callback(data))
-    return () => {
-      ipcRenderer.removeListener("debug-success", (_event, data) =>
-        callback(data)
-      )
+      ipcRenderer.removeListener("debug-success", subscription)
     }
   },
   onDebugError: (callback: (error: string) => void) => {
-    const subscription = (_: any, error: string) => callback(error)
+    const subscription = (_event: IpcRendererEvent, error: string) => callback(error)
     ipcRenderer.on(PROCESSING_EVENTS.DEBUG_ERROR, subscription)
     return () => {
       ipcRenderer.removeListener(PROCESSING_EVENTS.DEBUG_ERROR, subscription)
     }
   },
   onSolutionError: (callback: (error: string) => void) => {
-    const subscription = (_: any, error: string) => callback(error)
+    const subscription = (_event: IpcRendererEvent, error: string) => callback(error)
     ipcRenderer.on(PROCESSING_EVENTS.INITIAL_SOLUTION_ERROR, subscription)
     return () => {
       ipcRenderer.removeListener(
@@ -151,8 +161,8 @@ const electronAPI = {
       ipcRenderer.removeListener(PROCESSING_EVENTS.OUT_OF_CREDITS, subscription)
     }
   },
-  onProblemExtracted: (callback: (data: any) => void) => {
-    const subscription = (_: any, data: any) => callback(data)
+  onProblemExtracted: (callback: (data: unknown) => void) => {
+    const subscription = (_event: IpcRendererEvent, data: unknown) => callback(data)
     ipcRenderer.on(PROCESSING_EVENTS.PROBLEM_EXTRACTED, subscription)
     return () => {
       ipcRenderer.removeListener(
@@ -161,8 +171,8 @@ const electronAPI = {
       )
     }
   },
-  onSolutionSuccess: (callback: (data: any) => void) => {
-    const subscription = (_: any, data: any) => callback(data)
+  onSolutionSuccess: (callback: (data: unknown) => void) => {
+    const subscription = (_event: IpcRendererEvent, data: unknown) => callback(data)
     ipcRenderer.on(PROCESSING_EVENTS.SOLUTION_SUCCESS, subscription)
     return () => {
       ipcRenderer.removeListener(
@@ -211,15 +221,15 @@ const electronAPI = {
   },
   startUpdate: () => ipcRenderer.invoke("start-update"),
   installUpdate: () => ipcRenderer.invoke("install-update"),
-  onUpdateAvailable: (callback: (info: any) => void) => {
-    const subscription = (_: any, info: any) => callback(info)
+  onUpdateAvailable: (callback: (info: unknown) => void) => {
+    const subscription = (_event: IpcRendererEvent, info: unknown) => callback(info)
     ipcRenderer.on("update-available", subscription)
     return () => {
       ipcRenderer.removeListener("update-available", subscription)
     }
   },
-  onUpdateDownloaded: (callback: (info: any) => void) => {
-    const subscription = (_: any, info: any) => callback(info)
+  onUpdateDownloaded: (callback: (info: unknown) => void) => {
+    const subscription = (_event: IpcRendererEvent, info: unknown) => callback(info)
     ipcRenderer.on("update-downloaded", subscription)
     return () => {
       ipcRenderer.removeListener("update-downloaded", subscription)
@@ -227,7 +237,7 @@ const electronAPI = {
   },
   decrementCredits: () => ipcRenderer.invoke("decrement-credits"),
   onCreditsUpdated: (callback: (credits: number) => void) => {
-    const subscription = (_event: any, credits: number) => callback(credits)
+    const subscription = (_event: IpcRendererEvent, credits: number) => callback(credits)
     ipcRenderer.on("credits-updated", subscription)
     return () => {
       ipcRenderer.removeListener("credits-updated", subscription)
@@ -258,8 +268,8 @@ const electronAPI = {
       ipcRenderer.removeListener(PROCESSING_EVENTS.API_KEY_INVALID, subscription)
     }
   },
-  removeListener: (eventName: string, callback: (...args: any[]) => void) => {
-    ipcRenderer.removeListener(eventName, callback)
+  removeListener: (eventName: string, callback: (...args: unknown[]) => void) => {
+    ipcRenderer.removeListener(eventName, callback as unknown as IpcListener)
   },
   onDeleteLastScreenshot: (callback: () => void) => {
     const subscription = () => callback()
@@ -273,7 +283,7 @@ const electronAPI = {
   // Chat functionality
   sendChatMessage: (message: string) => ipcRenderer.invoke("send-chat-message", message),
   getChatHistory: () => ipcRenderer.invoke("get-chat-history"),
-  saveChatMessage: (message: any) => ipcRenderer.invoke("save-chat-message", message),
+  saveChatMessage: (message: unknown) => ipcRenderer.invoke("save-chat-message", message),
   clearChatHistory: () => ipcRenderer.invoke("clear-chat-history"),
   processScreenshotsForChat: () => ipcRenderer.invoke("process-screenshots-for-chat"),
   stopProcessing: () => ipcRenderer.invoke("stop-processing"),

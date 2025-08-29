@@ -224,7 +224,17 @@ ${data.data.thoughts}
         // Save AI message to persistent storage
         await saveMessageToPersistentStorage(aiMessage);
       } else {
-        throw new Error(response?.error || 'Failed to get AI response');
+        const errorText = response?.error || 'Failed to get AI response';
+        showToast('Warning', errorText, 'neutral');
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          type: 'ai',
+          content: errorText,
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, errorMessage]);
+        await saveMessageToPersistentStorage(errorMessage);
+        return;
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -234,7 +244,7 @@ ${data.data.thoughts}
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'ai',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: (error instanceof Error ? error.message : 'Sorry, I encountered an error. Please try again.'),
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, errorMessage]);

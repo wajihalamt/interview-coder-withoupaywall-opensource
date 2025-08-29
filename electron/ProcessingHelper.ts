@@ -37,6 +37,8 @@ export class ProcessingHelper {
   private geminiApiKey: string | null = null
   private anthropicClient: Anthropic | null = null
   private githubClient: OpenAI | null = null
+  // Simple client-side cooldown to reduce GitHub 429s for chat per model
+  private lastGithubChatCall: Record<string, number> = {}
 
   // AbortControllers for API requests
   private currentProcessingAbortController: AbortController | null = null
@@ -115,18 +117,44 @@ export class ProcessingHelper {
           console.warn("No API key available, Anthropic client not initialized");
         }
       } else if (config.apiProvider === "github") {
-        // GitHub Models API client initialization using OpenAI-compatible endpoint
+        // GitHub Models client initialization using OpenAI-compatible endpoint
+        // Supports both GitHub PATs and Azure AI Inference keys.
         this.openaiClient = null;
         this.geminiApiKey = null;
         this.anthropicClient = null;
         if (config.apiKey) {
+          const key = config.apiKey.trim();
+          const isGitHubPAT = /^(gh[pous]_|github_pat_)/i.test(key);
+          // Use Azure Inference endpoint to avoid TLS SNI issues with github.models.ai
+          const baseURL = 'https://models.inference.ai.azure.com';
+          // Attach appropriate header for token type
           this.githubClient = new OpenAI({
-            apiKey: config.apiKey,
-            baseURL: 'https://models.inference.ai.azure.com',
+            apiKey: key,
+            baseURL,
             timeout: 60000,
-            maxRetries: 2
+            maxRetries: 2,
+            // Ensure both Authorization and api-key headers are present for GitHub Models
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            fetch: (url: unknown, init?: unknown) => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const reqInit = (init as any) || {};
+              const headers = new Headers(reqInit.headers || {});
+              if (isGitHubPAT) {
+                // Use PAT as Bearer for Azure inference endpoint (accepted during deprecation window)
+                headers.set('Authorization', `Bearer ${key}`);
+                if (headers.has('api-key')) headers.delete('api-key');
+              } else {
+                // Use Azure key header
+                headers.set('api-key', key);
+                if (headers.has('Authorization')) headers.delete('Authorization');
+              }
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              return (globalThis.fetch as any)(url as any, { ...reqInit, headers });
+            }
           });
-          console.log("GitHub Models API client initialized successfully");
+          console.log(
+            `GitHub Models API client initialized successfully (endpoint: ${baseURL})`
+          );
         } else {
           this.openaiClient = null;
           this.geminiApiKey = null;
@@ -149,6 +177,16 @@ export class ProcessingHelper {
    */
   public getOpenAIClient(): OpenAI | null {
     return this.openaiClient;
+  }
+
+  // Map friendly/alias GitHub Model IDs to actual deployable IDs
+  private mapGithubModelId(model: string): string {
+    const m = (model || '').toLowerCase();
+    // Anthropic aliases often used in UI
+    if (m === 'claude-4-sonnet' || m === 'claude-3-7-sonnet') {
+      return 'claude-3-7-sonnet-20250219';
+    }
+    return model;
   }
 
   private async waitForInitialization(
@@ -205,22 +243,21 @@ export class ProcessingHelper {
           ) {
             return language;
           }
-        } catch (err) {
-          console.warn("Could not get language from window", err);
+        } catch (error: unknown) {
+          console.warn("Could not get language from window", error);
         }
       }
       
       // Default fallback
       return "python";
     } catch (error) {
-      console.error("Error getting language:", error)
-      return "python"
+      console.error("Error getting language:", error);
+      return "python";
     }
   }
 
   public async processScreenshots(): Promise<void> {
     const mainWindow = this.deps.getMainWindow()
-    if (!mainWindow) return
 
     const config = configHelper.loadConfig();
     
@@ -305,8 +342,8 @@ export class ProcessingHelper {
                 preview: await this.screenshotHelper.getImagePreview(path),
                 data: fs.readFileSync(path).toString('base64')
               };
-            } catch (err) {
-              console.error(`Error reading screenshot ${path}:`, err);
+            } catch (error: unknown) {
+              console.error(`Error reading screenshot ${path}:`, error);
               return null;
             }
           })
@@ -320,7 +357,6 @@ export class ProcessingHelper {
         }
 
         const result = await this.processScreenshotsHelper(validScreenshots, signal)
-
         if (!result.success) {
           console.log("Processing failed:", result.error)
           if (result.error?.includes("API Key") || result.error?.includes("OpenAI") || result.error?.includes("Gemini")) {
@@ -346,10 +382,11 @@ export class ProcessingHelper {
           result.data
         )
         this.deps.setView("solutions")
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const errMessage = error instanceof Error ? error.message : "Server error. Please try again."
         mainWindow.webContents.send(
           this.deps.PROCESSING_EVENTS.INITIAL_SOLUTION_ERROR,
-          error
+          errMessage
         )
         console.error("Processing error:", error)
         if (axios.isCancel(error)) {
@@ -360,7 +397,7 @@ export class ProcessingHelper {
         } else {
           mainWindow.webContents.send(
             this.deps.PROCESSING_EVENTS.INITIAL_SOLUTION_ERROR,
-            error.message || "Server error. Please try again."
+            errMessage
           )
         }
         // Reset view back to queue on error
@@ -417,8 +454,8 @@ export class ProcessingHelper {
                 preview: await this.screenshotHelper.getImagePreview(path),
                 data: fs.readFileSync(path).toString('base64')
               };
-            } catch (err) {
-              console.error(`Error reading screenshot ${path}:`, err);
+            } catch (error: unknown) {
+              console.error(`Error reading screenshot ${path}:`, error);
               return null;
             }
           })
@@ -453,16 +490,17 @@ export class ProcessingHelper {
             result.error
           )
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         if (axios.isCancel(error)) {
           mainWindow.webContents.send(
             this.deps.PROCESSING_EVENTS.DEBUG_ERROR,
             "Extra processing was canceled by the user."
           )
         } else {
+          const errMessage = error instanceof Error ? error.message : "Extra processing failed."
           mainWindow.webContents.send(
             this.deps.PROCESSING_EVENTS.DEBUG_ERROR,
-            error.message
+            errMessage
           )
         }
       } finally {
@@ -541,7 +579,7 @@ export class ProcessingHelper {
           // Handle when OpenAI might wrap the JSON in markdown code blocks
           const jsonText = responseText.replace(/```json|```/g, '').trim();
           problemInfo = JSON.parse(jsonText);
-        } catch (error) {
+        } catch (error: unknown) {
           console.error("Error parsing OpenAI response:", error);
           return {
             success: false,
@@ -646,16 +684,23 @@ export class ProcessingHelper {
           const responseText = (response.content[0] as { type: 'text', text: string }).text;
           const jsonText = responseText.replace(/```json|```/g, '').trim();
           problemInfo = JSON.parse(jsonText);
-        } catch (error: any) {
+        } catch (error: unknown) {
           console.error("Error using Anthropic API:", error);
 
           // Add specific handling for Claude's limitations
-          if (error.status === 429) {
+          const status = (typeof error === 'object' && error !== null && 'status' in error) ? (error as { status?: number }).status : undefined;
+          const message = error instanceof Error
+            ? error.message
+            : (typeof error === 'object' && error !== null && 'message' in error
+                ? String((error as { message?: unknown }).message)
+                : undefined);
+
+          if (status === 429) {
             return {
               success: false,
               error: "Claude API rate limit exceeded. Please wait a few minutes before trying again."
             };
-          } else if (error.status === 413 || (error.message && error.message.includes("token"))) {
+          } else if (status === 413 || (message && message.includes("token"))) {
             return {
               success: false,
               error: "Your screenshots contain too much information for Claude to process. Switch to OpenAI or Gemini in settings which can handle larger inputs."
@@ -704,10 +749,10 @@ export class ProcessingHelper {
         // Send to GitHub Models API
         try {
           const extractionResponse = await this.githubClient.chat.completions.create({
-            model: config.extractionModel || "gpt-4o",
+            model: this.mapGithubModelId(config.extractionModel || "gpt-4o"),
             messages: messages,
-            max_tokens: 4000,
-            temperature: 0.2
+            max_completion_tokens: 4000
+            // Note: GitHub Models (e.g., GPT-5) may not accept custom temperature; omit to use provider default
           });
 
           // Parse the response
@@ -723,7 +768,7 @@ export class ProcessingHelper {
               error: "Failed to parse problem information. Please try again or use clearer screenshots."
             };
           }
-        } catch (error: any) {
+  } catch (error: unknown) {
           console.error("Error using GitHub Models API:", error);
           return {
             success: false,
@@ -775,7 +820,7 @@ export class ProcessingHelper {
       }
 
       return { success: false, error: "Failed to process screenshots" };
-    } catch (error: any) {
+    } catch (error: unknown) {
       // If the request was cancelled, don't retry
       if (axios.isCancel(error)) {
         return {
@@ -785,17 +830,17 @@ export class ProcessingHelper {
       }
       
       // Handle OpenAI API errors specifically
-      if (error?.response?.status === 401) {
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
         return {
           success: false,
           error: "Invalid OpenAI API key. Please check your settings."
         };
-      } else if (error?.response?.status === 429) {
+      } else if (axios.isAxiosError(error) && error.response?.status === 429) {
         return {
           success: false,
           error: "OpenAI API rate limit exceeded or insufficient credits. Please try again later."
         };
-      } else if (error?.response?.status === 500) {
+      } else if (axios.isAxiosError(error) && error.response?.status === 500) {
         return {
           success: false,
           error: "OpenAI server error. Please try again later."
@@ -803,9 +848,10 @@ export class ProcessingHelper {
       }
 
       console.error("API Error Details:", error);
+      const errMessage = error instanceof Error ? error.message : "Failed to process screenshots. Please try again.";
       return { 
         success: false, 
-        error: error.message || "Failed to process screenshots. Please try again." 
+        error: errMessage
       };
     }
   }
@@ -961,16 +1007,23 @@ Your solution should be efficient, well-commented, and handle edge cases.
           });
 
           responseContent = (response.content[0] as { type: 'text', text: string }).text;
-        } catch (error: any) {
+        } catch (error: unknown) {
           console.error("Error using Anthropic API for solution:", error);
 
           // Add specific handling for Claude's limitations
-          if (error.status === 429) {
+          const status = (typeof error === 'object' && error !== null && 'status' in error) ? (error as { status?: number }).status : undefined;
+          const message = error instanceof Error
+            ? error.message
+            : (typeof error === 'object' && error !== null && 'message' in error
+                ? String((error as { message?: unknown }).message)
+                : undefined);
+
+          if (status === 429) {
             return {
               success: false,
               error: "Claude API rate limit exceeded. Please wait a few minutes before trying again."
             };
-          } else if (error.status === 413 || (error.message && error.message.includes("token"))) {
+          } else if (status === 413 || (message && message.includes("token"))) {
             return {
               success: false,
               error: "Your screenshots contain too much information for Claude to process. Switch to OpenAI or Gemini in settings which can handle larger inputs."
@@ -994,17 +1047,17 @@ Your solution should be efficient, well-commented, and handle edge cases.
         try {
           // Send to GitHub Models API
           const solutionResponse = await this.githubClient.chat.completions.create({
-            model: config.solutionModel || "gpt-4o",
+            model: this.mapGithubModelId(config.solutionModel || "gpt-4o"),
             messages: [
               { role: "system", content: "You are an expert coding interview assistant. Provide clear, optimal solutions with detailed explanations." },
               { role: "user", content: promptText }
             ],
-            max_tokens: 4000,
-            temperature: 0.2
+            max_completion_tokens: 4000
+            // Note: omit temperature for GitHub Models to avoid unsupported parameter errors
           });
 
           responseContent = solutionResponse.choices[0].message.content;
-        } catch (error: any) {
+  } catch (error: unknown) {
           console.error("Error using GitHub Models API for solution:", error);
           return {
             success: false,
@@ -1082,7 +1135,7 @@ Your solution should be efficient, well-commented, and handle edge cases.
       };
 
       return { success: true, data: formattedResponse };
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (axios.isCancel(error)) {
         return {
           success: false,
@@ -1090,20 +1143,21 @@ Your solution should be efficient, well-commented, and handle edge cases.
         };
       }
       
-      if (error?.response?.status === 401) {
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
         return {
           success: false,
           error: "Invalid OpenAI API key. Please check your settings."
         };
-      } else if (error?.response?.status === 429) {
+      } else if (axios.isAxiosError(error) && error.response?.status === 429) {
         return {
           success: false,
           error: "OpenAI API rate limit exceeded or insufficient credits. Please try again later."
         };
       }
       
-      console.error("Solution generation error:", error);
-      return { success: false, error: error.message || "Failed to generate solution" };
+  console.error("Solution generation error:", error);
+  const errMessage = error instanceof Error ? error.message : "Failed to generate solution";
+  return { success: false, error: errMessage };
     }
   }
 
@@ -1348,16 +1402,23 @@ If you include code examples, use proper markdown code blocks with language spec
           });
           
           debugContent = (response.content[0] as { type: 'text', text: string }).text;
-        } catch (error: any) {
+        } catch (error: unknown) {
           console.error("Error using Anthropic API for debugging:", error);
           
           // Add specific handling for Claude's limitations
-          if (error.status === 429) {
+          const status = (typeof error === 'object' && error !== null && 'status' in error) ? (error as { status?: number }).status : undefined;
+          const message = error instanceof Error
+            ? error.message
+            : (typeof error === 'object' && error !== null && 'message' in error
+                ? String((error as { message?: unknown }).message)
+                : undefined);
+
+          if (status === 429) {
             return {
               success: false,
               error: "Claude API rate limit exceeded. Please wait a few minutes before trying again."
             };
-          } else if (error.status === 413 || (error.message && error.message.includes("token"))) {
+          } else if (status === 413 || (message && message.includes("token"))) {
             return {
               success: false,
               error: "Your screenshots contain too much information for Claude to process. Switch to OpenAI or Gemini in settings which can handle larger inputs."
@@ -1429,14 +1490,14 @@ Provide comprehensive, specific help to fix the code issues.`
           }
 
           const response = await this.githubClient.chat.completions.create({
-            model: config.debuggingModel || "gpt-4o",
+            model: this.mapGithubModelId(config.debuggingModel || "gpt-4o"),
             messages: messages,
-            max_tokens: 4000,
-            temperature: 0.2
+            max_completion_tokens: 4000
+            // Note: omit temperature for GitHub Models to use default and avoid errors
           });
 
           debugContent = response.choices[0].message.content;
-        } catch (error: any) {
+  } catch (error: unknown) {
           console.error("Error using GitHub Models API for debugging:", error);
           return {
             success: false,
@@ -1483,9 +1544,10 @@ Provide comprehensive, specific help to fix the code issues.`
       };
 
       return { success: true, data: response };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Debug processing error:", error);
-      return { success: false, error: error.message || "Failed to process debug request" };
+      const errMessage = error instanceof Error ? error.message : "Failed to process debug request";
+      return { success: false, error: errMessage };
     }
   }
 
@@ -1524,28 +1586,91 @@ Provide comprehensive, specific help to fix the code issues.`
           return { success: false, error: "GitHub Models API client not initialized" };
         }
 
-        const completion = await this.githubClient.chat.completions.create({
-          model: config.extractionModel || "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: "You are a helpful AI assistant specialized in helping with coding problems, debugging, and programming questions. Provide clear, concise, and helpful responses."
-            },
-            {
-              role: "user",
-              content: message
-            }
-          ],
-          max_tokens: 1000,
-          temperature: 0.7,
-        });
-
-        const aiResponse = completion.choices[0]?.message?.content;
-        if (!aiResponse) {
-          return { success: false, error: "No response received from GitHub Models API" };
+  const rawModel = config.extractionModel || "gpt-4o-mini";
+  const modelName = this.mapGithubModelId(rawModel);
+        // Check client-side cooldown (60s window per model)
+        const last = this.lastGithubChatCall[modelName] ?? 0;
+        const elapsed = Date.now() - last;
+        const windowMs = 60_000;
+        if (elapsed < windowMs) {
+          const remaining = Math.ceil((windowMs - elapsed) / 1000);
+          return { success: false, error: `GitHub Models rate limit (client-side cooldown) – please wait ~${remaining}s and try again.` };
         }
 
-        return { success: true, message: aiResponse };
+        try {
+          const completion = await this.githubClient.chat.completions.create({
+            model: modelName,
+            messages: [
+              {
+                role: "system",
+                content: "You are a helpful AI assistant specialized in helping with coding problems, debugging, and programming questions. Provide clear, concise, and helpful responses."
+              },
+              {
+                role: "user",
+                content: message
+              }
+            ],
+            max_completion_tokens: 1000
+            // Note: temperature is omitted for GitHub Models (e.g., GPT-5) which may not support custom values
+          }, { timeout: 30_000 });
+
+          const aiResponse = completion.choices[0]?.message?.content;
+          if (!aiResponse) {
+            return { success: false, error: "No response received from GitHub Models API" };
+          }
+
+          this.lastGithubChatCall[modelName] = Date.now();
+          return { success: true, message: aiResponse };
+        } catch (err: unknown) {
+          // Handle GitHub/Azure inference rate limits gracefully
+          const isAxios = axios.isAxiosError(err);
+          // The OpenAI SDK throws an APIError-like object; attempt to read status/headers safely
+          const status = (typeof err === 'object' && err !== null && 'status' in err)
+            ? (err as { status?: number }).status
+            : (isAxios ? err.response?.status : undefined);
+          if (status === 429) {
+            this.lastGithubChatCall[modelName] = Date.now();
+            // Prefer server-provided wait hints
+            const headers: Record<string, string> | undefined = (typeof err === 'object' && err !== null && 'headers' in err)
+              ? (err as unknown as { headers?: Record<string, string> }).headers
+              : (isAxios ? err.response?.headers as Record<string, string> | undefined : undefined);
+            const retryAfterRaw = headers?.['retry-after'] ?? headers?.['Retry-After'];
+            const timeRemainingRaw = headers?.['x-ratelimit-timeremaining'] ?? headers?.['X-RateLimit-TimeRemaining'];
+            // Default hint if parsing fails
+            let waitSeconds = 60;
+            // Parse Retry-After per RFC (either seconds or HTTP-date)
+            const parseRetryAfter = (v?: string): number | undefined => {
+              if (!v) return undefined;
+              const n = Number(v);
+              if (!Number.isNaN(n) && Number.isFinite(n)) return Math.max(0, Math.ceil(n));
+              const dateTs = Date.parse(v);
+              if (!Number.isNaN(dateTs)) return Math.max(0, Math.ceil((dateTs - Date.now()) / 1000));
+              return undefined;
+            };
+            const parseRemaining = (v?: string): number | undefined => {
+              if (!v) return undefined;
+              const n = Number(v);
+              if (!Number.isNaN(n) && Number.isFinite(n)) return Math.max(0, Math.ceil(n));
+              return undefined;
+            };
+            const parsedRetryAfter = parseRetryAfter(retryAfterRaw);
+            const parsedRemaining = parseRemaining(timeRemainingRaw);
+            waitSeconds = parsedRetryAfter ?? parsedRemaining ?? waitSeconds;
+            // Clamp to a sane user-facing range (5s..120s)
+            if (waitSeconds < 5) waitSeconds = 5;
+            if (waitSeconds > 120) waitSeconds = 120;
+            const hint = `Please wait ~${waitSeconds}s and try again.`;
+            return { success: false, error: `GitHub Models rate limit reached. ${hint}` };
+          }
+          // Some 400s are Unknown model errors; provide guidance
+          const message = err instanceof Error ? err.message : (typeof err === 'object' && err && 'message' in err ? String((err as { message?: unknown }).message) : undefined);
+          if (status === 400 && message && /unknown model/i.test(message)) {
+            const mappedNote = rawModel !== modelName ? ` (mapped to '${modelName}')` : '';
+            return { success: false, error: `Unknown or unavailable model '${rawModel}'${mappedNote}. Try 'gpt-4o', 'gpt-4o-mini', 'gpt-5' (if enabled), or 'claude-3-7-sonnet-20250219'. If the model should exist, verify it’s enabled for your GitHub Models account/key.` };
+          }
+          const errMsg = message || 'Failed to call GitHub Models API';
+          return { success: false, error: errMsg };
+        }
 
       } else if (config.apiProvider === "gemini") {
         if (!this.geminiApiKey) {

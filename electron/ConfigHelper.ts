@@ -68,8 +68,8 @@ export class ConfigHelper extends EventEmitter {
    */
   private sanitizeModelSelection(model: string, provider: "openai" | "gemini" | "anthropic" | "github"): string {
     if (provider === "openai") {
-      // Only allow gpt-4o and gpt-4o-mini for OpenAI
-      const allowedModels = ['gpt-4o', 'gpt-4o-mini'];
+      // Allow select OpenAI chat models
+      const allowedModels = ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini'];
       if (!allowedModels.includes(model)) {
         console.warn(`Invalid OpenAI model specified: ${model}. Using default model: gpt-4o`);
         return 'gpt-4o';
@@ -92,9 +92,17 @@ export class ConfigHelper extends EventEmitter {
       }
       return model;
     } else if (provider === "github") {
-      // GitHub Models API only supports specific GPT models (very limited set)
+      // Normalize aliases first (UI-friendly ids to actual provider ids)
+      if (model === 'claude-4-sonnet' || model === 'claude-3-7-sonnet') {
+        model = 'claude-3-7-sonnet-20250219';
+      }
+      // GitHub Models API supports a limited set per account
       const allowedModels = [
-        'gpt-4o', 'gpt-4o-mini'
+        'gpt-4o',
+        'gpt-4o-mini',
+        // Newly enabled models in your GitHub Models account
+        'gpt-5',
+        'claude-3-7-sonnet-20250219'
       ];
       if (!allowedModels.includes(model)) {
         console.warn(`Invalid GitHub model specified: ${model}. Using default model: gpt-4o`);
@@ -177,6 +185,9 @@ export class ConfigHelper extends EventEmitter {
         } else if (updates.apiKey.trim().startsWith('sk-ant-')) {
           provider = "anthropic";
           console.log("Auto-detected Anthropic API key format");
+        } else if (/^(gh[pous]_|github_pat_)/i.test(updates.apiKey.trim())) {
+          provider = "github";
+          console.log("Auto-detected GitHub Models API token format");
         } else {
           provider = "gemini";
           console.log("Using Gemini API key format (default)");
@@ -247,7 +258,7 @@ export class ConfigHelper extends EventEmitter {
   /**
    * Validate the API key format
    */
-  public isValidApiKeyFormat(apiKey: string, provider?: "openai" | "gemini" | "anthropic" ): boolean {
+  public isValidApiKeyFormat(apiKey: string, provider?: "openai" | "gemini" | "anthropic" | "github" ): boolean {
     // If provider is not specified, attempt to auto-detect
     if (!provider) {
       if (apiKey.trim().startsWith('sk-')) {
@@ -270,6 +281,10 @@ export class ConfigHelper extends EventEmitter {
     } else if (provider === "anthropic") {
       // Basic format validation for Anthropic API keys
       return /^sk-ant-[a-zA-Z0-9]{32,}$/.test(apiKey.trim());
+  } else if (provider === "github") {
+      // Accept common GitHub PAT formats and Azure AI Inference keys (lengthy random keys)
+      const t = apiKey.trim();
+      return /^(gh[pous]_\w+|github_pat_\w+)/i.test(t) || t.length >= 20;
     }
     
     return false;
@@ -347,20 +362,20 @@ export class ConfigHelper extends EventEmitter {
       // Make a simple API call to test the key
       await openai.models.list();
       return { valid: true };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('OpenAI API key test failed:', error);
       
       // Determine the specific error type for better error messages
       let errorMessage = 'Unknown error validating OpenAI API key';
-      
-      if (error.status === 401) {
+      const err = error as { status?: number; message?: string };
+      if (err.status === 401) {
         errorMessage = 'Invalid API key. Please check your OpenAI key and try again.';
-      } else if (error.status === 429) {
+      } else if (err.status === 429) {
         errorMessage = 'Rate limit exceeded. Your OpenAI API key has reached its request limit or has insufficient quota.';
-      } else if (error.status === 500) {
+      } else if (err.status === 500) {
         errorMessage = 'OpenAI server error. Please try again later.';
-      } else if (error.message) {
-        errorMessage = `Error: ${error.message}`;
+      } else if (err.message) {
+        errorMessage = `Error: ${err.message}`;
       }
       
       return { valid: false, error: errorMessage };
@@ -380,12 +395,12 @@ export class ConfigHelper extends EventEmitter {
         return { valid: true };
       }
       return { valid: false, error: 'Invalid Gemini API key format.' };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Gemini API key test failed:', error);
       let errorMessage = 'Unknown error validating Gemini API key';
-      
-      if (error.message) {
-        errorMessage = `Error: ${error.message}`;
+      const err = error as { message?: string };
+      if (err.message) {
+        errorMessage = `Error: ${err.message}`;
       }
       
       return { valid: false, error: errorMessage };
@@ -405,12 +420,12 @@ export class ConfigHelper extends EventEmitter {
         return { valid: true };
       }
       return { valid: false, error: 'Invalid Anthropic API key format.' };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Anthropic API key test failed:', error);
       let errorMessage = 'Unknown error validating Anthropic API key';
-      
-      if (error.message) {
-        errorMessage = `Error: ${error.message}`;
+      const err = error as { message?: string };
+      if (err.message) {
+        errorMessage = `Error: ${err.message}`;
       }
       
       return { valid: false, error: errorMessage };
